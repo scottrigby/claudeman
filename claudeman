@@ -138,6 +138,18 @@ case $command in
 
         build_container
 
+        # Check if this is first run (deps not installed)
+        if [ ! -d .claude/claudeman/deps/go ]; then
+            echo ""
+            echo "=========================================="
+            echo "First run detected!"
+            echo "Installing Go and development tools..."
+            echo "This may take a few minutes."
+            echo "You'll see the Claude prompt when ready."
+            echo "=========================================="
+            echo ""
+        fi
+
         # Build runtime PATH with Go tools
         BUILDTIME_PATH=$(podman inspect localhost/claude-code | jq -r '.[0].Config.Env[] | select(startswith("PATH="))' | sed 's/^PATH=//')
         RUNTIME_PATH="/workspace/.claude/claudeman/deps/go/bin:/workspace/.claude/claudeman/deps/gopath/bin:$BUILDTIME_PATH"
