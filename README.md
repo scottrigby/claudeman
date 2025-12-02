@@ -46,8 +46,8 @@ claudeman run
 This will:
 
 - Download and build the latest upstream Anthropic container
-- Create a `.claude` directory with settings if it doesn't exist
-- Copy the default settings.json from the installation
+- Create a `.claude` directory if it doesn't exist
+- Merge claudeman hooks into `.claude/settings.json`
 - Install Go, golangci-lint, goimports, and whitespace tools via hooks
 - Start Claude Code in YOLO mode with audio notifications
 
@@ -70,13 +70,20 @@ claudeman help               # Show help
 
 ## Configuration
 
-The included `settings.json` provides default configuration with hooks for:
+The included `hooks.json` provides hooks for:
 
 - Code formatting (prettier, gofmt, goimports)
 - Whitespace hygiene (trailing space, newline at EOF)
 - Runtime dependency installation (Go toolchain)
 
-Copy `.claude/settings.json` from any project to customize per-project.
+**Intelligent Hook Merging:**
+
+- First run: `hooks.json` becomes `.claude/settings.json`
+- Subsequent runs: Hooks are intelligently merged
+  - User settings preserved
+  - Hooks with same matcher are combined (user hooks run first)
+  - New matchers are added
+  - Updates happen automatically on each `claudeman run`
 
 ## Requirements
 
@@ -92,9 +99,9 @@ Copy `.claude/settings.json` from any project to customize per-project.
   .claude/
   ├── claudeman/              # claudeman-specific files
   │   ├── deps/              # Dependencies (~600MB)
-  │   ├── dependencies.sh    # Installer script
-  │   └── notify.js          # Notification trigger
-  ├── settings.json          # Claude Code settings
+  │   ├── dependencies.sh    # Installer script (auto-updated)
+  │   └── notify.js          # Notification trigger (auto-updated)
+  ├── settings.json          # Claude Code settings (hooks merged intelligently)
   └── .bash_history          # Command history
   ```
 

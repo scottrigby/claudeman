@@ -117,10 +117,10 @@ case $command in
         # Create claudeman directory structure
         mkdir -p .claude/claudeman
 
-        # Copy settings.json to .claude/ if not present (preserve user customizations)
-        if [ ! -f .claude/settings.json ] && [ -f "$LIB_DIR/settings.json" ]; then
-            echo "Copying settings.json from $LIB_DIR"
-            cp "$LIB_DIR/settings.json" .claude/settings.json
+        # Merge hooks into settings.json
+        if [ -f "$LIB_DIR/hooks.json" ]; then
+            echo "Merging hooks into settings.json"
+            node "$LIB_DIR/merge-hooks.js" .claude/settings.json "$LIB_DIR/hooks.json"
         fi
 
         # Always copy claudeman files (get updates)

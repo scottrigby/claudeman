@@ -11,7 +11,7 @@
 #   - goimports (Go import formatter)
 #   - whitespace-tools (newline and trailingspace utilities)
 #
-# Called via SessionStart hook in settings.json on container startup.
+# Called via SessionStart hook in .claude/settings.json on container startup.
 
 set -euo pipefail
 

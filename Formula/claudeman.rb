@@ -30,8 +30,9 @@ class Claudeman < Formula
       Subsequent runs reuse installed tools for faster startup.
 
       Configuration:
-        Default settings are copied to .claude/settings.json on first run.
+        Hooks are merged into .claude/settings.json on each run.
         Customize per-project by editing .claude/settings.json.
+        Your customizations are preserved during hook updates.
     EOS
   end
 
