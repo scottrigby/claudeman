@@ -76,10 +76,10 @@ The included `hooks.json` provides hooks for:
 - Whitespace hygiene (trailing space, newline at EOF)
 - Runtime dependency installation (Go toolchain)
 
-**Intelligent Hook Merging:**
+**Hook Merging:**
 
 - First run: `hooks.json` becomes `.claude/settings.json`
-- Subsequent runs: Hooks are intelligently merged
+- Subsequent runs: Hooks are merged
   - User settings preserved
   - Hooks with same matcher are combined (user hooks run first)
   - New matchers are added
@@ -101,7 +101,7 @@ The included `hooks.json` provides hooks for:
   │   ├── deps/              # Dependencies (~600MB)
   │   ├── dependencies.sh    # Installer script (auto-updated)
   │   └── notify.js          # Notification trigger (auto-updated)
-  ├── settings.json          # Claude Code settings (hooks merged intelligently)
+  ├── settings.json          # Claude Code settings (hooks merged)
   └── .bash_history          # Command history
   ```
 
