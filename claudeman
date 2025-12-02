@@ -1,0 +1,169 @@
+#!/bin/bash
+
+# claudeman - Run Claude Code in a container with custom dependencies
+
+set -e
+trap 'echo "Error at line $LINENO"; exit 1' ERR
+
+# Discover lib directory (Homebrew-aware, resolves symlinks)
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_PATH" ]; do
+    SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
+    SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+    [[ $SCRIPT_PATH != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
+
+LIB_DIR="${SCRIPT_DIR}/../share/claudeman/lib"  # Homebrew location
+[ ! -d "$LIB_DIR" ] && LIB_DIR="${SCRIPT_DIR}/lib"  # Development/local install
+
+# Set path to the devcontainer directory
+CONTAINER_RAW_DIR="https://raw.githubusercontent.com/anthropics/claude-code/refs/heads/main/.devcontainer"
+
+# Ensure local claude directories exist
+function ensure_claude_dir {
+    echo "Creating claude directories..."
+    mkdir -p .claude
+    touch .claude/.bash_history
+}
+
+function build_container() {
+    echo "Using timezone: $TIMEZONE"
+    TEMP_DIR=$(mktemp -d)
+    curl -s $CONTAINER_RAW_DIR/Dockerfile -o $TEMP_DIR/Dockerfile
+    curl -s $CONTAINER_RAW_DIR/init-firewall.sh -o $TEMP_DIR/init-firewall.sh
+    podman build -t claude-code --build-arg TZ="$TIMEZONE" $TEMP_DIR
+}
+
+# Function to run container with common options
+function run_container {
+    local cmd=${1:-""}  # Command to run (optional)
+
+    # Common environment variables
+    # Get the current Terminal window ID where claude-code is running interactively, and assign to a shell variable
+    local winid=$(osascript -e 'tell application "Terminal" to id of front window')
+    local env_vars=(
+        "-e NODE_OPTIONS=--max-old-space-size=4096"
+        "-e CLAUDE_CONFIG_DIR=/home/node/.claude"
+        "-e POWERLEVEL9K_DISABLE_GITSTATUS=true"
+        "-e WINID=$winid"
+    )
+    if [[ -n ${RUNTIME_PATH:-} ]]; then
+        env_vars+=(
+            "-e PATH=$RUNTIME_PATH"
+        )
+    fi
+
+    # Common volume mounts
+    local volumes=(
+        "-v $(pwd)/.claude:/home/node/.claude"
+        "-v $(pwd)/.claude/.bash_history:/commandhistory/.bash_history"
+        "-v $(pwd):/workspace"
+    )
+
+    # Common local args
+    local args=(
+        "--cap-add=NET_ADMIN"
+        "--cap-add=NET_RAW"
+    )
+
+    # Build the command
+    podman run --rm -it ${env_vars[@]} ${volumes[@]} ${args[@]} claude-code ${cmd}
+}
+
+function usage {
+    echo "Usage: claude-container [run|help] [options]"
+    echo ""
+    echo "Run from within a project directory"
+    echo ""
+    echo "Commands:"
+    echo "  run [--] [cmd]   Run an interactive container (default cmd: claude --dangerously-skip-permissions)"
+    echo "  help             Displays help"
+    echo ""
+    echo "Options:"
+    echo "  --   Separator between options and command"
+    echo ""
+    echo "Examples:"
+    echo "  - Default: \`claude-container run\`"
+    echo "  - Custom command: \`claude-container run -- claude\`"
+    echo "  - Bash shell: \`claude-container run -- bash\`"
+    echo ""
+    echo "For audio notifications, add this to your CLAUDE.md:"
+    echo "  **Task Completion**:"
+    echo "  - Send audio notification: \`/workspace/notify.js "completion message"\`"
+    echo ""
+    echo "  **Clarification and Communication**:"
+    echo "  - Send notification when clarification needed: \`/workspace/notify.js "Need clarification: reason"\`"
+    echo ""
+}
+
+# Get current timezone in IANA format (e.g. "America/New_York")
+TIMEZONE=$(readlink /etc/localtime | sed 's/.*zoneinfo\///')
+
+# Check if no arguments are provided
+if [ -z "${1:-}" ]; then
+  usage
+  exit 0
+fi
+
+command=$1
+shift
+
+case $command in
+    run)
+        echo "Running interactive container..."
+        ensure_claude_dir
+
+        # Create claudeman directory structure
+        mkdir -p .claude/claudeman
+
+        # Merge hooks into settings.json
+        if [ -f "$LIB_DIR/hooks.json" ]; then
+            echo "Merging hooks into settings.json"
+            node "$LIB_DIR/merge-hooks.js" .claude/settings.json "$LIB_DIR/hooks.json"
+        fi
+
+        # Always copy claudeman files (get updates)
+        if [ -f "$LIB_DIR/dependencies.sh" ]; then
+            echo "Updating dependencies.sh from $LIB_DIR"
+            cp "$LIB_DIR/dependencies.sh" .claude/claudeman/dependencies.sh
+            chmod +x .claude/claudeman/dependencies.sh
+        fi
+
+        if [ -f "$LIB_DIR/notify.js" ]; then
+            echo "Updating notify.js from $LIB_DIR"
+            cp "$LIB_DIR/notify.js" .claude/claudeman/notify.js
+            chmod +x .claude/claudeman/notify.js
+        fi
+
+        build_container
+
+        # Build runtime PATH with Go tools
+        BUILDTIME_PATH=$(podman inspect localhost/claude-code | jq -r '.[0].Config.Env[] | select(startswith("PATH="))' | sed 's/^PATH=//')
+        RUNTIME_PATH="/workspace/.claude/claudeman/deps/go/bin:/workspace/.claude/claudeman/deps/gopath/bin:$BUILDTIME_PATH"
+
+        # Parse flags
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --)
+                    shift
+                    break
+                    ;;
+                *)
+                    break
+                    ;;
+            esac
+        done
+
+        [ $# -eq 0 ] && CMD="claude --dangerously-skip-permissions" || CMD="$@"
+        run_container "$CMD"
+        ;;
+    help)
+        usage
+        ;;
+    *)
+        echo "Error: Unknown command '$command'"
+        usage
+        exit 1
+        ;;
+esac

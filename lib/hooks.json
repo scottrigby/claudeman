@@ -1,0 +1,42 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | xargs npx prettier --write"
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path | select(endswith(\".go\"))' | xargs -r gofmt -w"
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path | select(endswith(\".go\"))' | xargs -r goimports -w"
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | xargs newline"
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | xargs trailingspace"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/node/.claude/claudeman/dependencies.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

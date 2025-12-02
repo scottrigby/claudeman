@@ -1,9 +1,19 @@
-# Claude Container
+# claudeman - Run Claude with Podman
 
-Runs [Claude Code (Research Preview)](https://docs.anthropic.com/en/docs/claude-code/overview) in a container sandbox, allowing Claude secure read/write access for only the current directory.
+Run [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) in a sandboxed container with custom dependencies, using the upstream Anthropic container.
 
-- Leverages the Claude Code [Dev Container](https://github.com/anthropics/claude-code/) reference implementation
-- Uses the same container settings as the VSCode extension, without needing to run VSCode or the extension
+## Why This Approach?
+
+Claude Code's official container is actively evolving without version tags or backwards compatibility guarantees. While you could maintain a custom Dockerfile, it quickly falls behind upstream changes.
+
+This tool solves this by:
+
+- Using the latest upstream Anthropic container (fetched fresh each run)
+- Installing custom dependencies at runtime via hooks (Go, linters, formatters, etc.)
+- Avoiding the maintenance burden of a custom container image
+- Staying current with Anthropic's updates automatically
+
+Instead of `FROM anthropic/claude-code` (which doesn't exist yet as a hosted image), this downloads the official Dockerfile on each run and extends it through runtime configuration.
 
 ## Prerequisites
 
@@ -11,58 +21,94 @@ Runs [Claude Code (Research Preview)](https://docs.anthropic.com/en/docs/claude-
 
 ## Installation
 
-1. Clone this repository
-2. Install
+Clone this repository and symlink the script globally:
 
-    ```bash
-    # Add alias to your shell config
-    alias claude-container=$(pwd)/claude-container
+```bash
+git clone https://github.com/scottrigby/claudeman ~/claudeman
+sudo ln -s ~/claudeman/claudeman /usr/local/bin/claudeman
+```
 
-    # Or add to bin
-    sudo cp claude-container /usr/local/bin
-    ```
+(Optional) In a new tab, start the notification listener:
+
+```bash
+cd ~/claudeman
+node lib/listener.js
+```
 
 ## Usage
 
-```text
-Usage: claude-container [run|help|build|start|exec|stop|rm|run-withgo|build-withgo|listener] [options]
+From any project directory, simply run:
 
-Run from within a project directory
-
-Simple Commands:
-  run         Run an interactive container that removes itself on exit (default command: claude)
-  help        Displays help
-
-More Commands:
-  build       Build the container image
-  start       Start a detached container (optional env var CONTAINER_NAME. default: parent-dir/current-dir)
-  exec        Execute a command in a running container (default: zsh)
-  stop        Stop a running container
-  rm          Remove a stopped container
-
-Custom Container Commands
-  run-withgo    Run an interactive container with Go tools
-  build-withgo  Build an interactive container with Go tools
-  listener      Start a notification listener for Claude (optional port. default: 8080. Ctrl-C to stop)
-
-Examples:
-  - Safe YOLO mode: `claude-container run claude --dangerously-skip-permissions`
-  - With Go: `claude-container run-withgo claude --dangerously-skip-permissions`
-
-For audio notifications, add this to your CLAUDE.md:
-  **Task Completion**:
-  - Send audio notification: `notify.sh completion message`
-
-  **Clarification and Communication**:
-  - Send notification when clarification needed: `notify.sh Need clarification: reason`
+```bash
+claudeman run
 ```
+
+This will:
+
+- Download and build the latest upstream Anthropic container
+- Create a `.claude` directory if it doesn't exist
+- Merge claudeman hooks into `.claude/settings.json`
+- Install Go, golangci-lint, goimports, and whitespace tools via hooks
+- Start Claude Code in YOLO mode with audio notifications
+
+### Examples
+
+```bash
+claudeman run                # Default: YOLO mode with all features
+claudeman run -- claude      # Standard mode (asks for permissions)
+claudeman run -- bash        # Drop into bash shell in container
+claudeman help               # Show help
+```
+
+## Features
+
+- **Auto-formatting**: Prettier, gofmt, goimports run on file save
+- **Whitespace hygiene**: Trailing space removal, newline at EOF
+- **Go tooling**: Full Go development environment installed at runtime
+- **Audio notifications**: macOS notifications when Claude finishes tasks (optional)
+- **Sandboxed**: Container isolation with access only to current directory
+
+## Configuration
+
+The included `hooks.json` provides hooks for:
+
+- Code formatting (prettier, gofmt, goimports)
+- Whitespace hygiene (trailing space, newline at EOF)
+- Runtime dependency installation (Go toolchain)
+
+**Intelligent Hook Merging:**
+
+- First run: `hooks.json` becomes `.claude/settings.json`
+- Subsequent runs: Hooks are intelligently merged
+  - User settings preserved
+  - Hooks with same matcher are combined (user hooks run first)
+  - New matchers are added
+  - Updates happen automatically on each `claudeman run`
+
+## Requirements
+
+- [Podman CLI](https://podman.io/)
+- macOS (for audio notifications; optional)
+- Node.js (for listener; optional)
 
 ## Notes
 
-- Creates a hidden `.claude` directory, which holds local settings, configuration and command history.
-  You may want Git to ignore some or all of these. Eg, ignore all but settings:
+- Creates a hidden `.claude` directory with the following structure:
+
+  ```
+  .claude/
+  ├── claudeman/              # claudeman-specific files
+  │   ├── deps/              # Dependencies (~600MB)
+  │   ├── dependencies.sh    # Installer script (auto-updated)
+  │   └── notify.js          # Notification trigger (auto-updated)
+  ├── settings.json          # Claude Code settings (hooks merged intelligently)
+  └── .bash_history          # Command history
+  ```
+
+  The `.claude` directory should be gitignored:
 
   ```bash
   echo '/.claude' >> .gitignore
-  echo '!/.claude/settings.local.json' >> .gitignore
   ```
+
+  Dependencies install on first run and are reused thereafter.
