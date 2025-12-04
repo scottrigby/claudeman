@@ -164,23 +164,24 @@ case $command in
 
         # Check if deps need to be installed
         if [ ! -d .claude/claudeman/deps/go ]; then
-            # Check if API key is configured (in ~/.claude/.claude.json)
+            # Check if API key is configured
             HAS_API_KEY=false
-            if [ -f ~/.claude/.claude.json ]; then
-                # Check for primaryApiKey or oauthAccount
-                if jq -e '.primaryApiKey // .oauthAccount' ~/.claude/.claude.json > /dev/null 2>&1; then
+            if [ -f .claude/.claude.json ]; then
+                if jq -e '.primaryApiKey // .oauthAccount' .claude/.claude.json > /dev/null 2>&1; then
                     HAS_API_KEY=true
                 fi
             fi
 
-            WAIT_MESSAGE="First run: Installing Go and development tools.\nThis may take a few minutes.\nYou'll see the Claude prompt when ready."
+            WAIT_MESSAGE="Claudeman installs Go and development tools at startup.
+This may take a few minutes.
+You'll see the Claude prompt when ready."
 
             if [ "$HAS_API_KEY" = false ]; then
                 # First time setup - user won't see stdout during API key prompt
                 # Show both macOS notification and stdout
                 echo ""
                 echo "=========================================="
-                echo -e "$WAIT_MESSAGE"
+                echo "$WAIT_MESSAGE"
                 echo "=========================================="
                 echo ""
 
@@ -192,7 +193,7 @@ case $command in
                 # API key exists - user will see stdout, so no notification needed
                 echo ""
                 echo "=========================================="
-                echo -e "$WAIT_MESSAGE"
+                echo "$WAIT_MESSAGE"
                 echo "=========================================="
                 echo ""
             fi
