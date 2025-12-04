@@ -105,24 +105,6 @@ The included `hooks.json` provides hooks for:
 - macOS (for audio notifications; optional)
 - Node.js (for listener; optional)
 
-## Notes
+## Architecture
 
-- Creates a hidden `.claude` directory with the following structure:
-
-  ```
-  .claude/
-  ├── claudeman/              # claudeman-specific files
-  │   ├── deps/              # Dependencies (~600MB)
-  │   ├── dependencies.sh    # Installer script (auto-updated)
-  │   └── notify.js          # Notification trigger (auto-updated)
-  ├── settings.json          # Claude Code settings (hooks merged)
-  └── .bash_history          # Command history
-  ```
-
-  The `.claude` directory should be gitignored:
-
-  ```bash
-  echo '/.claude' >> .gitignore
-  ```
-
-  Dependencies install on first run and are reused thereafter.
+For detailed information about how claudeman works, including the notification system, hook architecture, and multi-session support, see [ARCHITECTURE.md](ARCHITECTURE.md).
