@@ -5,6 +5,26 @@
 
 ---
 
+## Table of Contents
+
+- [Overview](#overview)
+- [High-Level Architecture](#high-level-architecture)
+- [Component Breakdown](#component-breakdown)
+  - [Host Components](#host-components)
+  - [Container Components](#container-components)
+- [Notification Flow](#notification-flow)
+- [Multi-Session Support](#multi-session-support)
+- [File Structure](#file-structure)
+- [Key Design Decisions](#key-design-decisions)
+- [Container vs. Host Boundary](#container-vs-host-boundary)
+- [Dependencies](#dependencies)
+- [Performance](#performance)
+- [Error Handling](#error-handling)
+- [Security](#security)
+- [Troubleshooting](#troubleshooting)
+
+---
+
 ## Overview
 
 Claudeman is a tool that runs Claude Code in a Podman container with custom development dependencies (Go, linters, formatters) and provides automatic desktop notifications for task completion and questions.
@@ -73,24 +93,10 @@ Claudeman is a tool that runs Claude Code in a Podman container with custom deve
 **Key Responsibilities:**
 
 - Builds/updates the Podman container
-- Captures the correct Terminal tab ID (WINID) using TTY
+- Captures the Terminal tab ID (WINID) using AppleScript
 - Copies claudeman scripts into `.claude/claudeman/`
 - Merges hooks into `.claude/settings.json`
-- Runs the container with proper volume mounts and environment variables
-
-**WINID Capture:**
-
-```bash
-local ttydev=$(tty)  # Get TTY device (e.g., /dev/ttys045)
-local winid=$(osascript -e "tell application \"Terminal\" to id of first window whose tty is \"$ttydev\"")
-```
-
-This ensures each terminal tab gets its own unique WINID, enabling correct window focusing.
-
-**Volume Mounts:**
-
-- `.claude/` → `/home/node/.claude/` (Claude config and history)
-- `$(pwd)` → `/workspace/` (project directory)
+- Runs the container with volume mounts for config and project files
 
 #### 2. `listener.js` (Node.js TCP Server)
 
@@ -111,23 +117,13 @@ This ensures each terminal tab gets its own unique WINID, enabling correct windo
 - `question` → "❓ needs input" → Audio: "claude-man needs input"
 - `info` → "ℹ️ info" → Audio: "claude-man info"
 
-**Window Focusing (AppleScript):**
+**Window Focusing:**
 
-```applescript
-tell application "Terminal"
-  set index of (first window whose id is ${WINID}) to 1
-  activate
-end tell
-```
+Uses AppleScript to find the Terminal window with the given WINID, bring it to the front, and activate the Terminal application.
 
 **Protocol Filter:**
 
-```javascript
-// Ignore HTTP requests (GET, POST, etc.)
-if (/^(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH)\s/.test(firstLine)) {
-  // Respond with HTTP 200 and ignore
-}
-```
+Detects HTTP requests by checking if the first line starts with an HTTP method (GET, POST, etc.), responds with HTTP 200 OK, and discards the request.
 
 ---
 
@@ -188,67 +184,19 @@ The automatic notification system is powered by Claude Code's hook system:
 
 ##### PreToolUse Hook (Question Detection)
 
-Fires BEFORE AskUserQuestion tool is used:
-
-```json
-{
-  "matcher": "AskUserQuestion",
-  "hooks": [
-    {
-      "type": "command",
-      "command": "node /home/node/.claude/claudeman/dedup.js \"question-$WINID\" node /home/node/.claude/claudeman/notify.js -t question -m \"Question ready\""
-    }
-  ]
-}
-```
+Fires BEFORE AskUserQuestion tool is used. Runs dedup.js with notify.js to send a question notification.
 
 ##### PostToolUse Hook (Task Completion)
 
-Fires AFTER active tools complete (Write, Edit, Bash, etc.):
-
-```json
-{
-  "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|SlashCommand",
-  "hooks": [
-    {
-      "type": "command",
-      "command": "node /home/node/.claude/claudeman/check-completion.js"
-    }
-  ]
-}
-```
+Fires AFTER active tools complete (Write, Edit, Bash, etc.). Runs check-completion.js to evaluate whether to send a completion notification.
 
 ##### UserPromptSubmit Hook (Structured Question Enforcement)
 
-Modifies user input to force Claude to use AskUserQuestion:
-
-```json
-{
-  "matcher": "",
-  "hooks": [
-    {
-      "type": "command",
-      "command": "/home/node/.claude/claudeman/enforce-questions.sh"
-    }
-  ]
-}
-```
+Modifies user input to force Claude to use AskUserQuestion. Runs enforce-questions.sh to append instructions to the user's prompt.
 
 ##### SessionStart Hook (Dependency Installation)
 
-Runs on container startup to install dependencies:
-
-```json
-{
-  "matcher": "",
-  "hooks": [
-    {
-      "type": "command",
-      "command": "/home/node/.claude/claudeman/dependencies.sh"
-    }
-  ]
-}
-```
+Runs on container startup to install dependencies. Executes dependencies.sh to set up Go and development tools.
 
 #### 4. `notify.js` (Notification Sender)
 
@@ -257,29 +205,14 @@ Runs on container startup to install dependencies:
 **Features:**
 
 - Supports both container and host invocation
-- `-h/--host` flag for specifying listener host
+- `-h/--host` flag for specifying listener host (defaults to `host.containers.internal` in container, requires explicit `-h localhost` on host)
 - `-t/--type` flag for event type (complete, question, info)
 - `-m/--message` flag for custom message
 - `-p/--port` flag for custom port (default: 8080)
 
-**Usage:**
-
-```bash
-# From container (default)
-node notify.js -t complete -m "Task done"
-
-# From host
-node notify.js -h localhost -t info -m "Installing dependencies"
-```
-
 **Protocol:**
-Sends three lines over TCP:
 
-```
-eventType
-WINID
-message
-```
+Sends three lines over TCP: event type, WINID, and message, each separated by a newline character.
 
 #### 5. `check-completion.js` (Completion Detector)
 
@@ -309,12 +242,6 @@ message
 2. Checks for lock file: `/tmp/claudeman-lock-${lockKey}.lock`
 3. If lock exists and age < 2 seconds, skip (duplicate)
 4. Otherwise, create lock and execute command (remaining args)
-
-**Usage:**
-
-```bash
-node dedup.js "question-30928" node notify.js -t question -m "Question"
-```
 
 **Why needed:** Claude Code sometimes fires hooks 2-4 times for a single event (known bug). Deduplication ensures only one notification is sent.
 
@@ -348,56 +275,15 @@ node dedup.js "question-30928" node notify.js -t question -m "Question"
 
 ## Notification Flow
 
-### Scenario: Claude Asks a Question
+When Claude asks a question or completes a task:
 
-```
-1. User: "What color should the button be?"
-   ↓
-2. Claude prepares to use AskUserQuestion tool
-   ↓
-3. PreToolUse hook fires (before tool executes)
-   ↓
-4. Hook runs: dedup.js → notify.js
-   ↓
-5. notify.js sends TCP to host:
-   "question\n30928\nQuestion ready\n"
-   ↓
-6. listener.js receives notification
-   ↓
-7. listener.js shows dialog: "claudeman ❓ Question ready"
-   ↓
-8. listener.js plays audio: "claude-man needs input"
-   ↓
-9. User clicks OK
-   ↓
-10. listener.js focuses Terminal tab 30928 (WINID)
-   ↓
-11. User sees Claude's question in focused tab
-```
-
-### Scenario: Claude Completes a Task
-
-```
-1. Claude uses Write tool to create a file
-   ↓
-2. PostToolUse hook fires (after Write completes)
-   ↓
-3. Hook runs: check-completion.js
-   ↓
-4. check-completion.js checks:
-   - Is tool active? (Write = yes)
-   - Is cooldown passed? (15 seconds since last notification)
-   ↓
-5. check-completion.js sends notification via notify.js
-   ↓
-6. listener.js receives: "complete\n30928\nTask progress: Write completed\n"
-   ↓
-7. listener.js shows dialog: "claudeman ✅ Task progress: Write completed"
-   ↓
-8. listener.js plays audio: "claude-man task complete"
-   ↓
-9. User clicks OK → Terminal tab 30928 focused
-```
+1. **Hook fires** (PreToolUse for questions, PostToolUse for completion)
+2. **Hook script runs** (dedup.js → notify.js or check-completion.js → notify.js)
+3. **TCP message sent** to listener: `eventType\nWINID\nmessage\n`
+4. **Listener receives** and parses the message
+5. **macOS notification** shown with emoji and message
+6. **Audio plays** ("claude-man needs input" or "claude-man task complete")
+7. **User clicks OK** → Terminal tab focused using WINID
 
 ---
 
@@ -409,16 +295,14 @@ Claudeman supports running multiple instances simultaneously in different Termin
 
 **Each terminal tab has:**
 
-- Unique TTY device (e.g., `/dev/ttys001`, `/dev/ttys045`)
 - Unique Window ID (e.g., `30928`, `56974`)
 
 **When `claudeman run` executes:**
 
-1. Script captures TTY: `tty` → `/dev/ttys045`
-2. Script finds window ID: `osascript -e "tell application \"Terminal\" to id of first window whose tty is \"/dev/ttys045\""` → `56974`
-3. Container receives `WINID=56974` environment variable
-4. All notifications from that container include `WINID=56974`
-5. Listener focuses window `56974` when notification is clicked
+1. Script captures front window ID using AppleScript
+2. Container receives WINID as an environment variable
+3. All notifications from that container include the WINID
+4. Listener focuses the correct window when notification is clicked
 
 **State Isolation:**
 
@@ -500,14 +384,14 @@ project/
 - Sufficient for local host-container communication
 - Easy to implement in both Node.js and shell scripts
 
-### 2. TTY-Based WINID Capture
+### 2. Front Window WINID Capture
 
-**Decision:** Use TTY to find Terminal window ID, not "front window"
+**Decision:** Use AppleScript's "front window" to get Terminal window ID
 **Why:**
 
-- "Front window" gives ID of currently focused window (race condition)
-- TTY is unique per terminal tab and stable
-- Each tab knows its own ID regardless of focus
+- Simple and reliable
+- Each Terminal tab has a unique window ID
+- Captures the ID at the moment `claudeman run` is executed
 
 ### 3. Hook-Based Automation
 
@@ -614,146 +498,46 @@ project/
 
 ---
 
-## Performance Characteristics
+## Performance
 
-### Startup Time
-
-- **First run** (no deps): 3-5 minutes (installs Go + tools)
-- **Subsequent runs** (deps cached): 10-20 seconds (container startup)
-
-### Memory Usage
-
-- **Per container**: ~500MB (Claude Code + Node.js)
-- **listener.js**: ~20MB
-- **Go tools**: ~100MB on disk
-
-### Notification Latency
-
-- **PreToolUse hook**: <100ms (fires before tool)
-- **PostToolUse hook**: <100ms (fires after tool)
-- **TCP transmission**: <10ms (local network)
-- **macOS notification**: ~100ms (dialog display)
-- **Total**: <300ms from trigger to visible notification
-
-### Cooldown Impact
-
-- **15-second cooldown**: Prevents spam but may delay notifications if tasks complete rapidly
-- **Dedup 2-second TTL**: Handles Claude's duplicate hooks with minimal delay
+- **First run**: 3-5 minutes (installs Go + tools)
+- **Subsequent runs**: 10-20 seconds (container startup)
+- **Notification latency**: ~300ms from trigger to display
+- **Memory per container**: ~500MB
 
 ---
 
 ## Error Handling
 
-### Listener Not Running
+The system is designed to fail gracefully:
 
-- **Effect:** notify.js fails to connect, prints error to stderr
-- **Impact:** No notification shown, but Claude continues working
-- **Solution:** Start listener with `claudeman listen`
-
-### HTTP Requests to Listener
-
-- **Effect:** Listener receives HTTP GET/POST instead of notification protocol
-- **Handling:** Detects HTTP method, responds with `HTTP/1.1 200 OK`, ignores
-- **Log:** `HTTP request received, ignoring`
-
-### Empty Notifications
-
-- **Effect:** Empty TCP connection (no data)
-- **Handling:** Currently not filtered (removed during implementation)
-- **Impact:** Minimal (rare occurrence)
-
-### Hook Failures
-
-- **Effect:** Hook script exits non-zero
-- **Handling:** Claude Code logs error, continues execution
-- **Impact:** Notification not sent, but Claude continues working
-
-### Invalid WINID
-
-- **Effect:** WINID not numeric or window doesn't exist
-- **Handling:** AppleScript fails gracefully, doesn't focus window
-- **Impact:** Notification shows but window not focused
+- **Listener not running**: notify.js fails, but Claude continues working
+- **HTTP requests**: Listener detects and ignores (responds with HTTP 200)
+- **Hook failures**: Claude Code logs error and continues
+- **Invalid WINID**: Notification shows but window focus fails silently
 
 ---
 
-## Security Considerations
+## Security
 
-### Network Exposure
-
-- **Listener port:** 8080 (TCP)
-- **Binding:** localhost (not exposed to network by default)
-- **Risk:** HTTP requests from network scanners (filtered out)
-- **Mitigation:** Listener filters HTTP requests and only processes valid protocol
-
-### Container Isolation
-
-- **Volume mounts:** Read/write access to `.claude/` and project directory
-- **Network:** Access to host via `host.containers.internal`
-- **Capabilities:** `NET_ADMIN` and `NET_RAW` (for container networking)
-- **User:** Runs as `node` user inside container (non-root)
-
-### AppleScript Permissions
-
-- **Terminal control:** Requires automation permissions
-- **macOS prompt:** User grants permission on first run
-- **Scope:** Limited to Terminal.app window management
+- **Listener**: Binds to localhost only, filters HTTP requests
+- **Container**: Runs as non-root `node` user, limited volume mounts
+- **AppleScript**: Requires macOS automation permission (Terminal.app control only)
 
 ---
 
 ## Troubleshooting
 
-### Notifications Not Appearing
+**No notifications?**
 
-1. Check listener is running: `ps aux | grep listener.js`
-2. Check listener port: `lsof -i :8080`
-3. Check container can reach host: `podman exec -it <container> ping host.containers.internal`
-4. Check WINID is set: `podman exec -it <container> sh -c 'echo $WINID'`
+- Check if listener.js is running on the host
+- Verify WINID environment variable is set in the container
 
-### Wrong Window Focused
+**Wrong window focused?**
 
-1. Check WINID matches terminal tab: `osascript -e 'tell application "Terminal" to id of front window'`
-2. Check TTY approach working: `tty` then verify window ID matches
-3. Restart container to capture fresh WINID
+- Restart container to capture fresh WINID
 
-### Duplicate Notifications
+**Too many notifications?**
 
-1. Check dedup.js is being used in hooks
-2. Check lock files: `ls /tmp/claudeman-lock-*`
-3. Increase dedup TTL if needed (edit dedup.js, change `lockTTL`)
-
-### Notifications Too Frequent
-
-1. Increase cooldown: Edit `check-completion.js`, change `cooldownMs` from 15000 to higher value
-2. Reduce active tools list: Edit `hooks.json`, remove tools from PostToolUse matcher
-
----
-
-## Future Enhancements
-
-### Potential Additions
-
-1. **Support for iTerm2 and Ghostty** (different terminal apps)
-2. **Webhook integrations** (Slack, Discord notifications)
-3. **Custom sounds** (user-selectable audio files)
-4. **State machine completion detection** (more sophisticated than cooldown)
-5. **Session naming** (friendly names like "bold-cat" instead of just WINID)
-6. **Linux support** (different notification system, no AppleScript)
-
-### Not Planned
-
-1. **Windows support** (Podman on Windows has different architecture)
-2. **Remote notifications** (designed for local development only)
-3. **Mobile notifications** (out of scope)
-
----
-
-## References
-
-- **Claude Code Documentation:** https://github.com/anthropics/claude-code
-- **Podman Documentation:** https://podman.io/docs
-- **Terminal.app AppleScript:** macOS Terminal AppleScript dictionary
-- **Design inspiration:** claude-notifications-go (https://github.com/777genius/claude-notifications-go)
-
----
-
-**End of Architecture Document**
+- Increase cooldown in check-completion.js (default: 15s)
+- Edit hooks.json to reduce active tools list
