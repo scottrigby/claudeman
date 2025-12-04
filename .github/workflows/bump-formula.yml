@@ -1,0 +1,71 @@
+name: bump-formula
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version
+        id: ver
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF##*/}"
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.ver.outputs.tag }}" \
+            --title "v${{ steps.ver.outputs.version }}" \
+            --generate-notes
+
+      - name: Resolve tarball URL + sha256
+        id: asset
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          OWNER="${GITHUB_REPOSITORY%%/*}"
+          REPO="${GITHUB_REPOSITORY##*/}"
+
+          # GitHub auto-generates source tarballs for tags
+          url="https://github.com/$OWNER/$REPO/archive/refs/tags/${TAG}.tar.gz"
+
+          # Download and calculate sha256
+          tmp="$(mktemp)"
+          curl -fsSL -o "$tmp" "$url"
+          sha256="$(shasum -a 256 "$tmp" | awk '{print $1}')"
+
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Bump formula directly in tap (no PR)
+        uses: dawidd6/action-homebrew-bump-formula@v3
+        with:
+          token: ${{ secrets.GH_PAT }}
+          tap: scottrigby/homebrew-tap
+          formula: claudeman
+          tag: ${{ steps.ver.outputs.tag }}
+          revision: ${{ github.sha }}
+          force: true
+
+          # Override URL and SHA since we use GitHub's auto-generated tarball
+          url: ${{ steps.asset.outputs.url }}
+          sha256: ${{ steps.asset.outputs.sha256 }}
