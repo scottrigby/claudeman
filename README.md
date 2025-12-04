@@ -21,15 +21,13 @@ Instead of `FROM anthropic/claude-code` (which doesn't exist yet as a hosted ima
 
 ## Installation
 
-### Option 1: Homebrew (recommended)
+Homebrew (recommended):
 
 ```bash
 brew install scottrigby/tap/claudeman
 ```
 
-### Option 2: Manual installation
-
-Clone this repository and symlink the script globally:
+Or clone this repository and symlink the script globally:
 
 ```bash
 git clone https://github.com/scottrigby/claudeman ~/claudeman
