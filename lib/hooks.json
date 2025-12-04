@@ -25,6 +25,37 @@
             "command": "jq -r '.tool_input.file_path' | xargs trailingspace"
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|SlashCommand",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /home/node/.claude/claudeman/check-completion.js"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /home/node/.claude/claudeman/dedup.js \"question-$WINID\" node /home/node/.claude/claudeman/notify.js -t question -m \"Question ready\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/node/.claude/claudeman/enforce-questions.sh"
+          }
+        ]
       }
     ],
     "SessionStart": [

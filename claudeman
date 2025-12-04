@@ -72,28 +72,35 @@ function run_container {
 }
 
 function usage {
-    echo "Usage: claude-container [run|help] [options]"
+    echo "Usage: claudeman [run|listen|help] [options]"
     echo ""
     echo "Run from within a project directory"
     echo ""
     echo "Commands:"
     echo "  run [--] [cmd]   Run an interactive container (default cmd: claude --dangerously-skip-permissions)"
+    echo "  listen [port]    Start the notification listener (default port: 8080)"
     echo "  help             Displays help"
     echo ""
     echo "Options:"
     echo "  --   Separator between options and command"
     echo ""
     echo "Examples:"
-    echo "  - Default: \`claude-container run\`"
-    echo "  - Custom command: \`claude-container run -- claude\`"
-    echo "  - Bash shell: \`claude-container run -- bash\`"
+    echo "  - Default: \`claudeman run\`"
+    echo "  - Custom command: \`claudeman run -- claude\`"
+    echo "  - Bash shell: \`claudeman run -- bash\`"
+    echo "  - Start listener: \`claudeman listen\`"
+    echo "  - Listener on custom port: \`claudeman listen 8085\`"
     echo ""
-    echo "For audio notifications, add this to your CLAUDE.md:"
-    echo "  **Task Completion**:"
-    echo "  - Send audio notification: \`/workspace/notify.js "completion message"\`"
+    echo "Automatic Notifications:"
+    echo "  Claudeman uses Claude Code's hook system to automatically notify you:"
+    echo "  - Questions: Notified when Claude asks a question (automatic)"
+    echo "  - Task Progress: Notified after active tools complete (automatic)"
+    echo "  - Structured Questions: Claude forced to use AskUserQuestion (automatic)"
     echo ""
-    echo "  **Clarification and Communication**:"
-    echo "  - Send notification when clarification needed: \`/workspace/notify.js "Need clarification: reason"\`"
+    echo "Manual Notifications (if needed):"
+    echo "  - Complete: \`node /home/node/.claude/claudeman/notify.js -t complete -m \"message\"\`"
+    echo "  - Question: \`node /home/node/.claude/claudeman/notify.js -t question -m \"message\"\`"
+    echo "  - Info: \`node /home/node/.claude/claudeman/notify.js -t info -m \"message\"\`"
     echo ""
 }
 
@@ -133,21 +140,62 @@ case $command in
         if [ -f "$LIB_DIR/notify.js" ]; then
             echo "Updating notify.js from $LIB_DIR"
             cp "$LIB_DIR/notify.js" .claude/claudeman/notify.js
-            chmod +x .claude/claudeman/notify.js
+        fi
+
+        if [ -f "$LIB_DIR/check-completion.js" ]; then
+            echo "Updating check-completion.js from $LIB_DIR"
+            cp "$LIB_DIR/check-completion.js" .claude/claudeman/check-completion.js
+            chmod +x .claude/claudeman/check-completion.js
+        fi
+
+        if [ -f "$LIB_DIR/dedup.js" ]; then
+            echo "Updating dedup.js from $LIB_DIR"
+            cp "$LIB_DIR/dedup.js" .claude/claudeman/dedup.js
+            chmod +x .claude/claudeman/dedup.js
+        fi
+
+        if [ -f "$LIB_DIR/enforce-questions.sh" ]; then
+            echo "Updating enforce-questions.sh from $LIB_DIR"
+            cp "$LIB_DIR/enforce-questions.sh" .claude/claudeman/enforce-questions.sh
+            chmod +x .claude/claudeman/enforce-questions.sh
         fi
 
         build_container
 
-        # Check if this is first run (deps not installed)
+        # Check if deps need to be installed
         if [ ! -d .claude/claudeman/deps/go ]; then
-            echo ""
-            echo "=========================================="
-            echo "First run detected!"
-            echo "Installing Go and development tools..."
-            echo "This may take a few minutes."
-            echo "You'll see the Claude prompt when ready."
-            echo "=========================================="
-            echo ""
+            # Check if API key is configured (in ~/.claude/.claude.json)
+            HAS_API_KEY=false
+            if [ -f ~/.claude/.claude.json ]; then
+                # Check for primaryApiKey or oauthAccount
+                if jq -e '.primaryApiKey // .oauthAccount' ~/.claude/.claude.json > /dev/null 2>&1; then
+                    HAS_API_KEY=true
+                fi
+            fi
+
+            WAIT_MESSAGE="First run: Installing Go and development tools.\nThis may take a few minutes.\nYou'll see the Claude prompt when ready."
+
+            if [ "$HAS_API_KEY" = false ]; then
+                # First time setup - user won't see stdout during API key prompt
+                # Show both macOS notification and stdout
+                echo ""
+                echo "=========================================="
+                echo -e "$WAIT_MESSAGE"
+                echo "=========================================="
+                echo ""
+
+                # Notify via listener if running (using notify.js from host)
+                if node "$LIB_DIR/notify.js" -h localhost -t info -m "$WAIT_MESSAGE" 2>/dev/null; then
+                    echo "Notification sent via listener"
+                fi
+            else
+                # API key exists - user will see stdout, so no notification needed
+                echo ""
+                echo "=========================================="
+                echo -e "$WAIT_MESSAGE"
+                echo "=========================================="
+                echo ""
+            fi
         fi
 
         # Build runtime PATH with Go tools
@@ -169,6 +217,20 @@ case $command in
 
         [ $# -eq 0 ] && CMD="claude --dangerously-skip-permissions" || CMD="$@"
         run_container "$CMD"
+        ;;
+    listen)
+        PORT="${1:-8080}"
+        if [ ! -f "$LIB_DIR/listener.js" ]; then
+            echo "Error: listener.js not found at $LIB_DIR/listener.js"
+            exit 1
+        fi
+        echo "Starting notification listener on port $PORT..."
+        echo "Press Ctrl+C to stop"
+        if [ "$PORT" = "8080" ]; then
+            node "$LIB_DIR/listener.js"
+        else
+            node "$LIB_DIR/listener.js" -p "$PORT"
+        fi
         ;;
     help)
         usage

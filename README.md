@@ -21,18 +21,19 @@ Instead of `FROM anthropic/claude-code` (which doesn't exist yet as a hosted ima
 
 ## Installation
 
+### Option 1: Homebrew (recommended)
+
+```bash
+brew install scottrigby/tap/claudeman
+```
+
+### Option 2: Manual installation
+
 Clone this repository and symlink the script globally:
 
 ```bash
 git clone https://github.com/scottrigby/claudeman ~/claudeman
 sudo ln -s ~/claudeman/claudeman /usr/local/bin/claudeman
-```
-
-(Optional) In a new tab, start the notification listener:
-
-```bash
-cd ~/claudeman
-node lib/listener.js
 ```
 
 ## Usage
@@ -57,8 +58,21 @@ This will:
 claudeman run                # Default: YOLO mode with all features
 claudeman run -- claude      # Standard mode (asks for permissions)
 claudeman run -- bash        # Drop into bash shell in container
+claudeman listen             # Start notification listener
 claudeman help               # Show help
 ```
+
+## Audio Notifications
+
+Optional macOS notifications when Claude finishes tasks.
+
+In a new tab, start the notification listener:
+
+```bash
+claudeman listen
+```
+
+One listener instance handles all claudeman sessions. Notifications will activate the correct Terminal window for each session automatically.
 
 ## Features
 
