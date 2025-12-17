@@ -22,6 +22,8 @@
 - [Error Handling](#error-handling)
 - [Security](#security)
 - [Troubleshooting](#troubleshooting)
+- [Key Discoveries from Hook Development](#key-discoveries-from-hook-development)
+- [References](#references)
 
 ---
 
@@ -541,3 +543,61 @@ The system is designed to fail gracefully:
 
 - Increase cooldown in check-completion.js (default: 15s)
 - Edit hooks.json to reduce active tools list
+
+**Hook changes not taking effect?**
+
+- Changes to settings.json hooks require a Claude Code session restart
+- Hooks are NOT hot-reloaded during an active session
+
+---
+
+## Key Discoveries from Hook Development
+
+These learnings came from extensive experimentation with Claude Code's hook system:
+
+### 1. Settings Changes Require Restart
+
+Changes to `settings.json` hooks are NOT hot-reloaded. You must restart the Claude Code session for new hooks or hook changes to take effect.
+
+### 2. Undocumented Tool Matchers Work
+
+PreToolUse matchers work with tool names not listed in documentation:
+
+- **Documented:** Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, Task, MCP tools
+- **Undocumented but working:** AskUserQuestion, TodoWrite, SlashCommand
+
+### 3. idle_prompt Notification Works
+
+The `idle_prompt` notification type works correctly and fires after 60 seconds of idle time. (GitHub issue #8320 is resolved.)
+
+### 4. Stop Hook Timing Limitation
+
+The Stop hook fires BEFORE the current message is written to the transcript. This means:
+
+- Hook can only analyze previous messages (one message behind)
+- Cannot detect whether the current response asked questions
+- Unsuitable for analyzing the response that triggered it
+
+### 5. Upstream Modification is More Reliable
+
+Modifying prompts BEFORE Claude processes them (UserPromptSubmit) is far more effective than trying to correct behavior AFTER Claude has composed a response (Stop hook blocking). Success rate: 100% vs ~30-40%.
+
+---
+
+## References
+
+### Official Documentation
+
+- [Claude Code Hooks Reference](https://docs.anthropic.com/en/docs/claude-code/hooks)
+- [Claude Code Overview](https://docs.anthropic.com/en/docs/claude-code/overview)
+
+### GitHub Issues to Track
+
+- [Issue #8320](https://github.com/anthropics/claude-code/issues/8320): idle_prompt - RESOLVED (it works)
+- [Issue #10346](https://github.com/anthropics/claude-code/issues/10346): Missing AskUserQuestion documentation
+- [Issue #11964](https://github.com/anthropics/claude-code/issues/11964): Notification hook events missing notification_type
+
+### Tutorials & Examples
+
+- [Claude Code Hooks Mastery (GitHub)](https://github.com/disler/claude-code-hooks-mastery)
+- [Hook Schemas Reference (Gist)](https://gist.github.com/FrancisBourre/50dca37124ecc43eaf08328cdcccdb34)
