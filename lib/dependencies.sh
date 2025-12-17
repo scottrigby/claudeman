@@ -12,8 +12,17 @@
 #   - whitespace-tools (newline and trailingspace utilities)
 #
 # Called via SessionStart hook in .claude/settings.json on container startup.
+#
+# Environment variables:
+#   CLAUDEMAN_INSTALL_GO - set to "false" to skip Go installation
 
 set -euo pipefail
+
+# Check if Go installation is disabled
+if [ "${CLAUDEMAN_INSTALL_GO:-true}" = "false" ]; then
+    echo "Go installation disabled (CLAUDEMAN_INSTALL_GO=false)"
+    exit 0
+fi
 
 GO_VER="1.24.3"
 ARCH="$(dpkg --print-architecture)"   # amd64 or arm64

@@ -53,6 +53,16 @@ function run_container {
             "-e PATH=$RUNTIME_PATH"
         )
     fi
+    # Pass claudeman configuration to container
+    if [[ -n ${CLAUDEMAN_NOTIFY_COMPLETION:-} ]]; then
+        env_vars+=("-e CLAUDEMAN_NOTIFY_COMPLETION=$CLAUDEMAN_NOTIFY_COMPLETION")
+    fi
+    if [[ -n ${CLAUDEMAN_ENFORCE_QUESTIONS:-} ]]; then
+        env_vars+=("-e CLAUDEMAN_ENFORCE_QUESTIONS=$CLAUDEMAN_ENFORCE_QUESTIONS")
+    fi
+    if [[ -n ${CLAUDEMAN_INSTALL_GO:-} ]]; then
+        env_vars+=("-e CLAUDEMAN_INSTALL_GO=$CLAUDEMAN_INSTALL_GO")
+    fi
 
     # Common volume mounts
     local volumes=(
@@ -77,19 +87,29 @@ function usage {
     echo "Run from within a project directory"
     echo ""
     echo "Commands:"
-    echo "  run [--] [cmd]   Run an interactive container (default cmd: claude --dangerously-skip-permissions)"
-    echo "  listen [port]    Start the notification listener (default port: 8080)"
-    echo "  help             Displays help"
+    echo "  run [options] [--] [cmd]   Run an interactive container"
+    echo "  listen [options]           Start the notification listener"
+    echo "  help                       Displays help"
     echo ""
-    echo "Options:"
-    echo "  --   Separator between options and command"
+    echo "Run Options:"
+    echo "  --no-completion-notify   Disable task completion notifications"
+    echo "  --no-question-enforce    Disable forcing AskUserQuestion for questions"
+    echo "  --no-go                  Skip Go and Go tools installation"
+    echo "  --                       Separator between options and command"
+    echo ""
+    echo "Listen Options:"
+    echo "  -p, --port <port>        Listener port (default: 8080)"
+    echo "  -v, --volume <0-100|auto>  Audio volume (default: auto)"
+    echo "                           Note: Setting 0-100 overrides system mute"
     echo ""
     echo "Examples:"
-    echo "  - Default: \`claudeman run\`"
-    echo "  - Custom command: \`claudeman run -- claude\`"
-    echo "  - Bash shell: \`claudeman run -- bash\`"
-    echo "  - Start listener: \`claudeman listen\`"
-    echo "  - Listener on custom port: \`claudeman listen 8085\`"
+    echo "  claudeman run                        # Default with all features"
+    echo "  claudeman run --no-completion-notify # Quieter, no task completion alerts"
+    echo "  claudeman run --no-go -- bash        # Shell without Go installation"
+    echo "  claudeman run -- claude              # Standard mode (asks for permissions)"
+    echo "  claudeman listen                     # Start listener (volume: auto)"
+    echo "  claudeman listen --volume 60         # Set notification volume to 60"
+    echo "  claudeman listen --volume 80         # Louder notifications"
     echo ""
     echo "Automatic Notifications:"
     echo "  Claudeman uses Claude Code's hook system to automatically notify you:"
@@ -119,6 +139,36 @@ shift
 case $command in
     run)
         echo "Running interactive container..."
+
+        # Parse run flags (before --)
+        NOTIFY_COMPLETION=true
+        ENFORCE_QUESTIONS=true
+        INSTALL_GO=true
+
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --no-completion-notify)
+                    NOTIFY_COMPLETION=false
+                    shift
+                    ;;
+                --no-question-enforce)
+                    ENFORCE_QUESTIONS=false
+                    shift
+                    ;;
+                --no-go)
+                    INSTALL_GO=false
+                    shift
+                    ;;
+                --)
+                    shift
+                    break
+                    ;;
+                *)
+                    break
+                    ;;
+            esac
+        done
+
         ensure_claude_dir
 
         # Create claudeman directory structure
@@ -162,8 +212,8 @@ case $command in
 
         build_container
 
-        # Check if deps need to be installed
-        if [ ! -d .claude/claudeman/deps/go ]; then
+        # Check if deps need to be installed (only if Go installation is enabled)
+        if [ "$INSTALL_GO" = true ] && [ ! -d .claude/claudeman/deps/go ]; then
             # Check if API key is configured
             HAS_API_KEY=false
             if [ -f .claude/.claude.json ]; then
@@ -203,35 +253,50 @@ You'll see the Claude prompt when ready."
         BUILDTIME_PATH=$(podman inspect localhost/claude-code | jq -r '.[0].Config.Env[] | select(startswith("PATH="))' | sed 's/^PATH=//')
         RUNTIME_PATH="/workspace/.claude/claudeman/deps/go/bin:/workspace/.claude/claudeman/deps/gopath/bin:$BUILDTIME_PATH"
 
-        # Parse flags
-        while [[ $# -gt 0 ]]; do
-            case $1 in
-                --)
-                    shift
-                    break
-                    ;;
-                *)
-                    break
-                    ;;
-            esac
-        done
+        # Export configuration as environment variables for container
+        export CLAUDEMAN_NOTIFY_COMPLETION="$NOTIFY_COMPLETION"
+        export CLAUDEMAN_ENFORCE_QUESTIONS="$ENFORCE_QUESTIONS"
+        export CLAUDEMAN_INSTALL_GO="$INSTALL_GO"
 
         [ $# -eq 0 ] && CMD="claude --dangerously-skip-permissions" || CMD="$@"
         run_container "$CMD"
         ;;
     listen)
-        PORT="${1:-8080}"
+        # Parse listen flags
+        PORT=8080
+        VOLUME=auto
+
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                -p|--port)
+                    PORT="$2"
+                    shift 2
+                    ;;
+                -v|--volume)
+                    VOLUME="$2"
+                    shift 2
+                    ;;
+                *)
+                    # Backward compatibility: positional port argument
+                    if [[ "$1" =~ ^[0-9]+$ ]]; then
+                        PORT="$1"
+                        shift
+                    else
+                        echo "Error: Unknown option '$1'"
+                        usage
+                        exit 1
+                    fi
+                    ;;
+            esac
+        done
+
         if [ ! -f "$LIB_DIR/listener.js" ]; then
             echo "Error: listener.js not found at $LIB_DIR/listener.js"
             exit 1
         fi
-        echo "Starting notification listener on port $PORT..."
+        echo "Starting notification listener on port $PORT (volume: $VOLUME)..."
         echo "Press Ctrl+C to stop"
-        if [ "$PORT" = "8080" ]; then
-            node "$LIB_DIR/listener.js"
-        else
-            node "$LIB_DIR/listener.js" -p "$PORT"
-        fi
+        node "$LIB_DIR/listener.js" -p "$PORT" -v "$VOLUME"
         ;;
     help)
         usage

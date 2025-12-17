@@ -5,6 +5,12 @@
 # Read user input from stdin
 USER_INPUT=$(cat)
 
+# If question enforcement is disabled, pass through unchanged
+if [ "$CLAUDEMAN_ENFORCE_QUESTIONS" = "false" ]; then
+    echo "$USER_INPUT"
+    exit 0
+fi
+
 # Append instruction
 INSTRUCTION="
 

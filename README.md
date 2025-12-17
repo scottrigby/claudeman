@@ -53,12 +53,30 @@ This will:
 ### Examples
 
 ```bash
-claudeman run                # Default: YOLO mode with all features
-claudeman run -- claude      # Standard mode (asks for permissions)
-claudeman run -- bash        # Drop into bash shell in container
-claudeman listen             # Start notification listener
-claudeman help               # Show help
+claudeman run                        # Default: YOLO mode with all features
+claudeman run --no-completion-notify # Quieter, no task completion alerts
+claudeman run --no-go -- bash        # Shell without Go installation
+claudeman run -- claude              # Standard mode (asks for permissions)
+claudeman listen                     # Start listener (volume: auto)
+claudeman listen --volume 60         # Set notification volume to 60
+claudeman listen --volume 80         # Louder notifications
+claudeman help                       # Show help
 ```
+
+### Run Options
+
+| Flag                     | Description                                   |
+| ------------------------ | --------------------------------------------- |
+| `--no-completion-notify` | Disable task completion notifications         |
+| `--no-question-enforce`  | Disable forcing AskUserQuestion for questions |
+| `--no-go`                | Skip Go and Go tools installation             |
+
+### Listen Options
+
+| Flag                         | Description                                              |
+| ---------------------------- | -------------------------------------------------------- |
+| `-p, --port <port>`          | Listener port (default: 8080)                            |
+| `-v, --volume <0-100\|auto>` | Audio volume (default: auto). Note: 0-100 overrides mute |
 
 ## Audio Notifications
 
