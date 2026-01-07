@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /home/node/.claude/claudeman/dedup.js \"question-$WINID\" node /home/node/.claude/claudeman/notify.js -t question -m \"Question ready\""
+          }
+        ]
+      }
+    ]
+  }
+}

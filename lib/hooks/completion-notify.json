@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|SlashCommand",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /home/node/.claude/claudeman/check-completion.js"
+          }
+        ]
+      }
+    ]
+  }
+}
