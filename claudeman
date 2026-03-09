@@ -40,13 +40,33 @@ function run_container {
     local cmd=${1:-""}  # Command to run (optional)
 
     # Common environment variables
-    # Get the current Terminal window ID where claude-code is running interactively, and assign to a shell variable
-    local winid=$(osascript -e 'tell application "Terminal" to id of front window')
+    # Get terminal-specific ID for notifications based on TERM_PROGRAM
+    local term_id=""
+
+    case "${TERM_PROGRAM:-}" in
+        ghostty)
+            # Get terminal UUID (unique per tab/pane)
+            term_id=$(osascript -e 'tell application "Ghostty" to get id of focused terminal of selected tab of front window' 2>/dev/null | sed 's/terminal id //')
+            ;;
+        Apple_Terminal)
+            # Get window ID (unique per tab in Terminal.app)
+            term_id=$(osascript -e 'tell application "Terminal" to id of front window' 2>/dev/null)
+            ;;
+        iTerm.app)
+            # Get session unique ID
+            term_id=$(osascript -e 'tell application "iTerm2" to get unique id of current session of current window' 2>/dev/null)
+            ;;
+        *)
+            echo "Warning: Unsupported terminal '${TERM_PROGRAM:-unknown}'. Notifications may not focus correctly."
+            ;;
+    esac
+
     local env_vars=(
         "-e NODE_OPTIONS=--max-old-space-size=4096"
         "-e CLAUDE_CONFIG_DIR=/home/node/.claude"
         "-e POWERLEVEL9K_DISABLE_GITSTATUS=true"
-        "-e WINID=$winid"
+        "-e TERM_PROGRAM=${TERM_PROGRAM:-}"
+        "-e TERM_ID=$term_id"
     )
     if [[ -n ${RUNTIME_PATH:-} ]]; then
         env_vars+=(

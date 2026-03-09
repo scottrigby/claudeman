@@ -42,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node /home/node/.claude/claudeman/dedup.js \"question-$WINID\" node /home/node/.claude/claudeman/notify.js -t question -m \"Question ready\""
+            "command": "node /home/node/.claude/claudeman/dedup.js \"question-$TERM_ID\" node /home/node/.claude/claudeman/notify.js -t question -m \"Question ready\""
           }
         ]
       }

@@ -88,7 +88,15 @@ In a new tab, start the notification listener:
 claudeman listen
 ```
 
-One listener instance handles all claudeman sessions. Notifications will activate the correct Terminal window for each session automatically.
+One listener instance handles all claudeman sessions. Notifications will activate the correct terminal tab for each session automatically.
+
+### Supported Terminals
+
+| Terminal                        | Minimum Version | Notes                                                                                |
+| ------------------------------- | --------------- | ------------------------------------------------------------------------------------ |
+| [Ghostty](https://ghostty.org/) | 1.3.0+          | Requires [AppleScript support](https://ghostty.org/docs/install/release-notes/1-3-0) |
+| Terminal.app                    | Any             | Built-in macOS terminal                                                              |
+| [iTerm2](https://iterm2.com/)   | Any             | Popular third-party terminal                                                         |
 
 ## Features
 
@@ -120,6 +128,7 @@ The included `hooks.json` provides hooks for:
 - [Podman CLI](https://podman.io/)
 - macOS (for audio notifications; optional)
 - Node.js (for listener; optional)
+- Supported terminal: Ghostty 1.3.0+, Terminal.app, or iTerm2 (for tab focusing; optional)
 
 ## Architecture
 
