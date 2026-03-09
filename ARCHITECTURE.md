@@ -1,7 +1,7 @@
 # Claudeman Architecture
 
-**Version:** 1.0
-**Last Updated:** 2025-12-04
+**Version:** 1.1
+**Last Updated:** 2026-03-09
 
 ---
 
@@ -49,7 +49,8 @@ Claudeman is a tool that runs Claude Code in a Podman container with custom deve
 │                                                          │
 │  ┌────────────────────┐         ┌──────────────────┐   │
 │  │ Terminal Tab 1     │         │ Terminal Tab 2    │   │
-│  │ (WINID: 30928)     │         │ (WINID: 56974)    │   │
+│  │ (Ghostty/Terminal/ │         │ (Ghostty/Terminal/│   │
+│  │  iTerm2)           │         │  iTerm2)          │   │
 │  │                    │         │                   │   │
 │  │ $ claudeman run    │         │ $ claudeman run   │   │
 │  │                    │         │                   │   │
@@ -76,7 +77,7 @@ Claudeman is a tool that runs Claude Code in a Podman container with custom deve
 │              │ - Parse events │                          │
 │              │ - Show dialog  │                          │
 │              │ - Play audio   │                          │
-│              │ - Focus window │                          │
+│              │ - Focus tab    │                          │
 │              └────────────────┘                          │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
@@ -95,10 +96,18 @@ Claudeman is a tool that runs Claude Code in a Podman container with custom deve
 **Key Responsibilities:**
 
 - Builds/updates the Podman container
-- Captures the Terminal tab ID (WINID) using AppleScript
+- Detects terminal app via `TERM_PROGRAM` and captures terminal-specific ID using AppleScript
 - Copies claudeman scripts into `.claude/claudeman/`
 - Merges hooks into `.claude/settings.json`
 - Runs the container with volume mounts for config and project files
+
+**Supported Terminals:**
+
+| Terminal                                 | `TERM_PROGRAM`   | ID Type           |
+| ---------------------------------------- | ---------------- | ----------------- |
+| [Ghostty](https://ghostty.org/) (1.3.0+) | `ghostty`        | Terminal UUID     |
+| Terminal.app                             | `Apple_Terminal` | Window ID         |
+| [iTerm2](https://iterm2.com/)            | `iTerm.app`      | Session unique ID |
 
 #### 2. `listener.js` (Node.js TCP Server)
 
@@ -107,11 +116,11 @@ Claudeman is a tool that runs Claude Code in a Podman container with custom deve
 **Key Responsibilities:**
 
 - Listens on TCP port 8080
-- Parses three-line protocol: `eventType\nWINID\nmessage\n`
+- Parses four-line protocol: `eventType\nTERM_PROGRAM\nTERM_ID\nmessage\n`
 - Filters out HTTP requests (from network scanners/browsers)
-- Shows macOS dialog with notification
+- Shows macOS dialog with OK/Cancel buttons
 - Plays audio announcement via `say` command
-- Focuses the correct Terminal tab using WINID
+- Focuses the correct terminal tab when user clicks OK
 
 **Event Types:**
 
@@ -119,9 +128,13 @@ Claudeman is a tool that runs Claude Code in a Podman container with custom deve
 - `question` → "❓ needs input" → Audio: "claude-man needs input"
 - `info` → "ℹ️ info" → Audio: "claude-man info"
 
-**Window Focusing:**
+**Tab Focusing:**
 
-Uses AppleScript to find the Terminal window with the given WINID, bring it to the front, and activate the Terminal application.
+Uses AppleScript tailored to each terminal app:
+
+- **Ghostty:** `focus terminal id <UUID>`
+- **Terminal.app:** `set index of (first window whose id is <ID>) to 1`
+- **iTerm2:** Iterates windows/tabs/sessions to find matching `unique id`, then selects
 
 **Protocol Filter:**
 
@@ -137,22 +150,22 @@ The automatic notification system is powered by Claude Code's hook system:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ Claude Code Container                                    │
-│                                                          │
-│  ┌──────────────────────────────────────────┐          │
-│  │ hooks.json (auto-invoked by Claude Code) │          │
-│  └────────────┬─────────────────────────────┘          │
-│               │                                          │
+│ Claude Code Container                                   │
+│                                                         │
+│  ┌──────────────────────────────────────────┐           │
+│  │ hooks.json (auto-invoked by Claude Code) │           │
+│  └────────────┬─────────────────────────────┘           │
+│               │                                         │
 │               ├─► PreToolUse(AskUserQuestion)           │
 │               │   → dedup.js → notify.js -t question    │
-│               │                                          │
-│               ├─► PostToolUse(active tools)              │
+│               │                                         │
+│               ├─► PostToolUse(active tools)             │
 │               │   → check-completion.js → notify.js     │
-│               │                                          │
-│               └─► UserPromptSubmit                       │
-│                   → enforce-questions.sh                 │
-│                                                          │
-│  notify.js ──────────► TCP ──────────────────────┐     │
+│               │                                         │
+│               └─► UserPromptSubmit                      │
+│                   → enforce-questions.sh                │
+│                                                         │
+│  notify.js ──────────► TCP ───────────────────────┐     │
 └───────────────────────────────────────────────────┼─────┘
                                                     │
                         ┌───────────────────────────┘
@@ -212,9 +225,14 @@ Runs on container startup to install dependencies. Executes dependencies.sh to s
 - `-m/--message` flag for custom message
 - `-p/--port` flag for custom port (default: 8080)
 
+**Environment Variables:**
+
+- `TERM_PROGRAM` - Terminal program name (ghostty, Apple_Terminal, iTerm.app)
+- `TERM_ID` - Terminal-specific ID for tab focusing
+
 **Protocol:**
 
-Sends three lines over TCP: event type, WINID, and message, each separated by a newline character.
+Sends four lines over TCP: event type, TERM_PROGRAM, TERM_ID, and message, each separated by a newline character.
 
 #### 5. `check-completion.js` (Completion Detector)
 
@@ -225,12 +243,12 @@ Sends three lines over TCP: event type, WINID, and message, each separated by a 
 1. Reads hook input from stdin (JSON with tool_name)
 2. Checks if tool is "active" (Write, Edit, Bash, etc.)
 3. Checks cooldown (15 seconds since last notification)
-4. Updates state file: `/tmp/claudeman-winid-${WINID}.json`
+4. Updates state file: `/tmp/claudeman-termid-${TERM_ID}.json`
 5. Sends completion notification
 
 **State Management:**
 
-- Per-session state using WINID
+- Per-session state using TERM_ID
 - Cooldown prevents notification spam
 - State file tracks `lastNotification` and `lastToolTime`
 
@@ -240,7 +258,7 @@ Sends three lines over TCP: event type, WINID, and message, each separated by a 
 
 **How it works:**
 
-1. Takes lock key as first argument (e.g., `"question-$WINID"`)
+1. Takes lock key as first argument (e.g., `"question-$TERM_ID"`)
 2. Checks for lock file: `/tmp/claudeman-lock-${lockKey}.lock`
 3. If lock exists and age < 2 seconds, skip (duplicate)
 4. Otherwise, create lock and execute command (remaining args)
@@ -281,54 +299,59 @@ When Claude asks a question or completes a task:
 
 1. **Hook fires** (PreToolUse for questions, PostToolUse for completion)
 2. **Hook script runs** (dedup.js → notify.js or check-completion.js → notify.js)
-3. **TCP message sent** to listener: `eventType\nWINID\nmessage\n`
+3. **TCP message sent** to listener: `eventType\nTERM_PROGRAM\nTERM_ID\nmessage\n`
 4. **Listener receives** and parses the message
-5. **macOS notification** shown with emoji and message
+5. **macOS notification** shown with emoji and message (OK/Cancel buttons)
 6. **Audio plays** ("claude-man needs input" or "claude-man task complete")
-7. **User clicks OK** → Terminal tab focused using WINID
+7. **User clicks OK** → Terminal tab focused using appropriate AppleScript for terminal type
 
 ---
 
 ## Multi-Session Support
 
-Claudeman supports running multiple instances simultaneously in different Terminal tabs.
+Claudeman supports running multiple instances simultaneously in different terminal tabs, across different terminal apps.
 
-### How WINID Enables Multi-Session
+### How TERM_ID Enables Multi-Session
 
-**Each terminal tab has:**
+**Each terminal tab has a unique identifier:**
 
-- Unique Window ID (e.g., `30928`, `56974`)
+| Terminal     | ID Format         | Example                                |
+| ------------ | ----------------- | -------------------------------------- |
+| Ghostty      | UUID              | `FBF11A2D-BE3F-45EB-BEFE-94DC37DE29EE` |
+| Terminal.app | Window ID         | `30928`                                |
+| iTerm2       | Session unique ID | `w0t0p0:12345678-ABCD-...`             |
 
 **When `claudeman run` executes:**
 
-1. Script captures front window ID using AppleScript
-2. Container receives WINID as an environment variable
-3. All notifications from that container include the WINID
-4. Listener focuses the correct window when notification is clicked
+1. Script detects terminal via `TERM_PROGRAM` environment variable
+2. Script captures terminal-specific ID using AppleScript
+3. Container receives `TERM_PROGRAM` and `TERM_ID` as environment variables
+4. All notifications from that container include these values
+5. Listener uses appropriate AppleScript to focus the correct tab when OK is clicked
 
 **State Isolation:**
 
-- Lock files: `/tmp/claudeman-lock-question-${WINID}.lock`
-- State files: `/tmp/claudeman-winid-${WINID}.json`
+- Lock files: `/tmp/claudeman-lock-question-${TERM_ID}.lock`
+- State files: `/tmp/claudeman-termid-${TERM_ID}.json`
 
 Each session has independent state, preventing crosstalk between sessions.
 
-### Example: Three Simultaneous Sessions
+### Example: Three Simultaneous Sessions (Mixed Terminals)
 
 ```
-Tab A (WINID: 30928) → Project: website
-Tab B (WINID: 56974) → Project: api-server
-Tab C (WINID: 12345) → Project: mobile-app
+Ghostty Tab (TERM_ID: FBF11A2D-...) → Project: website
+Terminal.app Tab (TERM_ID: 56974)   → Project: api-server
+iTerm2 Tab (TERM_ID: w0t0p0:...)    → Project: mobile-app
 ```
 
-When Tab B's Claude asks a question:
+When the api-server Claude asks a question:
 
-- Notification shows with WINID=56974
+- Notification shows with TERM_PROGRAM=Apple_Terminal, TERM_ID=56974
 - User clicks OK
-- Terminal focuses Tab B (not Tab A or C)
+- Terminal.app focuses the correct tab (not Ghostty or iTerm2)
 - User sees context: `api-server` directory and prompt
 
-**No confusion.** User always lands in the correct project context.
+**No confusion.** User always lands in the correct project context, regardless of terminal app.
 
 ---
 
@@ -386,14 +409,16 @@ project/
 - Sufficient for local host-container communication
 - Easy to implement in both Node.js and shell scripts
 
-### 2. Front Window WINID Capture
+### 2. Terminal Detection via TERM_PROGRAM
 
-**Decision:** Use AppleScript's "front window" to get Terminal window ID
+**Decision:** Use `TERM_PROGRAM` environment variable to detect terminal, then AppleScript to get terminal-specific ID
 **Why:**
 
-- Simple and reliable
-- Each Terminal tab has a unique window ID
+- `TERM_PROGRAM` is a standard env var set by all major terminals
+- No need for System Events to detect frontmost app
+- Each terminal provides a unique ID per tab/session
 - Captures the ID at the moment `claudeman run` is executed
+- Supports multiple terminal apps (Ghostty, Terminal.app, iTerm2)
 
 ### 3. Hook-Based Automation
 
@@ -485,10 +510,11 @@ project/
 
 ### Host Requirements
 
-- **macOS** (for Terminal.app and AppleScript)
+- **macOS** (for AppleScript notifications)
 - **Podman** (container runtime)
 - **Node.js** (for listener.js)
 - **jq** (for JSON manipulation in bash)
+- **Supported terminal:** Ghostty 1.3.0+, Terminal.app, or iTerm2
 
 ### Container Requirements
 
@@ -516,7 +542,7 @@ The system is designed to fail gracefully:
 - **Listener not running**: notify.js fails, but Claude continues working
 - **HTTP requests**: Listener detects and ignores (responds with HTTP 200)
 - **Hook failures**: Claude Code logs error and continues
-- **Invalid WINID**: Notification shows but window focus fails silently
+- **Invalid TERM_ID**: Notification shows but tab focus fails silently
 
 ---
 
@@ -524,7 +550,7 @@ The system is designed to fail gracefully:
 
 - **Listener**: Binds to localhost only, filters HTTP requests
 - **Container**: Runs as non-root `node` user, limited volume mounts
-- **AppleScript**: Requires macOS automation permission (Terminal.app control only)
+- **AppleScript**: Requires macOS automation permission for the terminal app in use (Ghostty, Terminal.app, or iTerm2)
 
 ---
 
@@ -533,11 +559,17 @@ The system is designed to fail gracefully:
 **No notifications?**
 
 - Check if listener.js is running on the host
-- Verify WINID environment variable is set in the container
+- Verify `TERM_PROGRAM` and `TERM_ID` environment variables are set in the container
 
-**Wrong window focused?**
+**Wrong tab focused?**
 
-- Restart container to capture fresh WINID
+- Restart container to capture fresh TERM_ID
+- Ensure you're using a supported terminal (Ghostty 1.3.0+, Terminal.app, or iTerm2)
+
+**Ghostty not focusing correctly?**
+
+- Requires Ghostty 1.3.0 or later for AppleScript support
+- Check Ghostty release notes: https://ghostty.org/docs/install/release-notes/1-3-0
 
 **Too many notifications?**
 
