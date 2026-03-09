@@ -9,11 +9,11 @@ Claude Code's official container is actively evolving without version tags or ba
 This tool solves this by:
 
 - Using the latest upstream Anthropic container (fetched fresh each run)
-- Installing custom dependencies at runtime via hooks (Go, linters, formatters, etc.)
+- Installing custom dependencies at build time via Containerfile fragments
 - Avoiding the maintenance burden of a custom container image
 - Staying current with Anthropic's updates automatically
 
-Instead of `FROM anthropic/claude-code` (which doesn't exist yet as a hosted image), this downloads the official Dockerfile on each run and extends it through runtime configuration.
+Instead of `FROM anthropic/claude-code` (which doesn't exist yet as a hosted image), this downloads the official Dockerfile on each run and appends your dependency fragments before building.
 
 ## Prerequisites
 
@@ -44,32 +44,32 @@ claudeman run
 
 This will:
 
-- Download and build the latest upstream Anthropic container
+- Download the latest upstream Anthropic Dockerfile
+- Append selected dependency fragments (if any via `--deps=`)
+- Build the container image
 - Create a `.claude` directory if it doesn't exist
 - Merge claudeman hooks into `.claude/settings.json`
-- Install Go, golangci-lint, goimports, and whitespace tools via hooks
 - Start Claude Code in YOLO mode with audio notifications
 
 ### Examples
 
 ```bash
-claudeman run                        # Default: YOLO mode with all features
-claudeman run --no-completion-notify # Quieter, no task completion alerts
-claudeman run --no-go -- bash        # Shell without Go installation
-claudeman run -- claude              # Standard mode (asks for permissions)
-claudeman listen                     # Start listener (volume: auto)
-claudeman listen --volume 60         # Set notification volume to 60
-claudeman listen --volume 80         # Louder notifications
-claudeman help                       # Show help
+claudeman run                        # Minimal container (no extra deps)
+claudeman run --deps=go              # With Go toolchain
+claudeman run --deps=go,playwright   # Multiple deps
+claudeman run --deps=all             # All available deps
+claudeman run -- bash                # Shell access
+claudeman listen                     # Start notification listener
+claudeman deps                       # List available deps
 ```
 
 ### Run Options
 
-| Flag                     | Description                                   |
-| ------------------------ | --------------------------------------------- |
-| `--no-completion-notify` | Disable task completion notifications         |
-| `--no-question-enforce`  | Disable forcing AskUserQuestion for questions |
-| `--no-go`                | Skip Go and Go tools installation             |
+| Flag                     | Description                                             |
+| ------------------------ | ------------------------------------------------------- |
+| `--deps=DEPS`            | Dependencies to install (go,python,rust,playwright,all) |
+| `--no-completion-notify` | Disable task completion notifications                   |
+| `--no-question-enforce`  | Disable forcing AskUserQuestion for questions           |
 
 ### Listen Options
 
@@ -102,9 +102,48 @@ One listener instance handles all claudeman sessions. Notifications will activat
 
 - **Auto-formatting**: Prettier, gofmt, goimports run on file save
 - **Whitespace hygiene**: Trailing space removal, newline at EOF
-- **Go tooling**: Full Go development environment installed at runtime
+- **Opt-in deps**: Go, Python, Rust, Playwright (select with `--deps=`)
 - **Audio notifications**: macOS notifications when Claude finishes tasks (optional)
 - **Sandboxed**: Container isolation with access only to current directory
+- **Extensible**: Add custom dependencies via Containerfile fragments
+
+## Dependencies
+
+Dependencies are installed at build time via Containerfile fragments (`.cf` files). Select which deps to include with `--deps=`.
+
+**Available deps:**
+
+```bash
+claudeman deps  # List available dependencies
+```
+
+| Name       | Description                   |
+| ---------- | ----------------------------- |
+| go         | Go toolchain + linters        |
+| python     | Python 3 + pip + venv         |
+| rust       | Rust + Cargo                  |
+| playwright | Playwright + Chromium browser |
+
+**Usage:**
+
+```bash
+claudeman run --deps=go              # Just Go
+claudeman run --deps=go,python       # Go and Python
+claudeman run --deps=all             # Everything
+claudeman run                        # No extra deps (minimal)
+```
+
+**Custom deps:**
+
+Create your own `.cf` files in `~/.config/claudeman/deps/` to override bundled deps or add new ones. Project-specific deps go in `.claude/deps/` and are always included.
+
+Fragments are appended to the upstream Claude Code Dockerfile, which uses a `node:20` base image (Debian). Use `USER root` for apt-get, then `USER node` to return to the default user.
+
+**Adding dependencies mid-session:**
+
+1. Stop claudeman (`Ctrl+C`)
+2. Run with new deps: `claudeman run --deps=go,playwright`
+3. Use `/resume` in Claude to continue where you left off
 
 ## Configuration
 
@@ -112,7 +151,6 @@ The included `hooks.json` provides hooks for:
 
 - Code formatting (prettier, gofmt, goimports)
 - Whitespace hygiene (trailing space, newline at EOF)
-- Runtime dependency installation (Go toolchain)
 
 **Hook Merging:**
 

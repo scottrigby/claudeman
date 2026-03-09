@@ -57,17 +57,6 @@
           }
         ]
       }
-    ],
-    "SessionStart": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/home/node/.claude/claudeman/dependencies.sh"
-          }
-        ]
-      }
     ]
   }
 }
