@@ -95,11 +95,40 @@ Claudeman is a tool that runs Claude Code in a Podman container with custom deve
 
 **Key Responsibilities:**
 
-- Builds/updates the Podman container
+- Downloads upstream Anthropic Dockerfile
+- Appends Containerfile fragments (`.cf` files) for dependencies
+- Builds the extended container image
 - Detects terminal app via `TERM_PROGRAM` and captures terminal-specific ID using AppleScript
 - Copies claudeman scripts into `.claude/claudeman/`
 - Merges hooks into `.claude/settings.json`
 - Runs the container with volume mounts for config and project files
+
+**Containerfile Fragments:**
+
+Dependencies are installed at build time via `.cf` files selected with `--deps=`:
+
+| Location                        | Purpose                                         |
+| ------------------------------- | ----------------------------------------------- |
+| `lib/deps/*.cf`                 | Bundled examples (go, python, rust, playwright) |
+| `~/.config/claudeman/deps/*.cf` | User overrides (same name takes precedence)     |
+| `.claude/deps/*.cf`             | Project-specific deps (always included)         |
+
+Usage: `claudeman run --deps=go,python` or `--deps=all`
+
+Fragments are appended to the upstream Claude Code Dockerfile (which uses `node:20` base image, Debian). A final `USER node` is added for safety.
+
+**Image Naming:**
+
+Images are tagged based on selected deps, allowing multiple configurations to coexist:
+
+| Command                          | Image                 |
+| -------------------------------- | --------------------- |
+| `claudeman run`                  | `claudeman:latest`    |
+| `claudeman run --deps=go`        | `claudeman:go`        |
+| `claudeman run --deps=go,python` | `claudeman:go-python` |
+| `claudeman run --deps=all`       | `claudeman:all`       |
+
+Deps are sorted alphabetically in the tag. Per [OCI Distribution Spec](https://github.com/opencontainers/distribution-spec/blob/main/spec.md), tags are limited to 128 characters; longer tags are truncated with `-TRUNC` suffix.
 
 **Supported Terminals:**
 
@@ -209,10 +238,6 @@ Fires AFTER active tools complete (Write, Edit, Bash, etc.). Runs check-completi
 
 Modifies user input to force Claude to use AskUserQuestion. Runs enforce-questions.sh to append instructions to the user's prompt.
 
-##### SessionStart Hook (Dependency Installation)
-
-Runs on container startup to install dependencies. Executes dependencies.sh to set up Go and development tools.
-
 #### 4. `notify.js` (Notification Sender)
 
 **Purpose:** Sends notifications from container to host listener
@@ -276,20 +301,6 @@ Sends four lines over TCP: event type, TERM_PROGRAM, TERM_ID, and message, each 
 3. Outputs modified input
 
 **Effect:** Claude will ALWAYS use the structured AskUserQuestion tool instead of asking questions in chat, ensuring 100% reliable question notifications.
-
-#### 8. `dependencies.sh` (Dependency Installer)
-
-**Purpose:** Installs Go and development tools on first run
-
-**Installs:**
-
-- Go (latest version)
-- golangci-lint (Go linter)
-- goimports (Go import formatter)
-- newline (ensures files end with newline)
-- trailingspace (removes trailing whitespace)
-
-**Caching:** Installs to `.claude/claudeman/deps/` which persists across container restarts.
 
 ---
 
@@ -361,10 +372,14 @@ When the api-server Claude asks a question:
 claudeman/
 ├── claudeman                       # Main executable script
 │
-├── lib/                            # Library files (copied to container)
+├── lib/
+│   ├── deps/                       # Bundled Containerfile fragments
+│   │   ├── go.cf                   # Go toolchain + linters
+│   │   ├── python.cf               # Python 3 + pip + venv
+│   │   ├── rust.cf                 # Rust + Cargo
+│   │   └── playwright.cf           # Playwright + Chromium
 │   ├── check-completion.js         # Task completion detector
 │   ├── dedup.js                    # Deduplication wrapper
-│   ├── dependencies.sh             # Dependency installer
 │   ├── enforce-questions.sh        # Question enforcer
 │   ├── hooks.json                  # Hook configuration
 │   ├── listener.js                 # Host notification listener
@@ -372,9 +387,12 @@ claudeman/
 │   └── notify.js                   # Notification sender
 │
 ├── ARCHITECTURE.md                 # This file
-├── IMPLEMENTATION-SUMMARY.md       # Implementation details
-├── PLAN-notification-improvements.md  # Design document
 └── README.md                       # User documentation
+
+User config directory (XDG standard):
+~/.config/claudeman/
+└── deps/                           # User overrides (same name takes precedence)
+    └── *.cf                        # Containerfile fragments
 
 Project directory (when running claudeman):
 project/
@@ -382,15 +400,13 @@ project/
 │   ├── .claude.json                # Claude API key config (local)
 │   ├── .bash_history               # Shell history
 │   ├── settings.json               # Claude settings (includes merged hooks)
+│   ├── deps/                       # Project-specific deps (always included)
+│   │   └── *.cf                    # Containerfile fragments
 │   └── claudeman/
-│       ├── dependencies.sh         # Copied from lib/
 │       ├── notify.js               # Copied from lib/
 │       ├── check-completion.js     # Copied from lib/
 │       ├── dedup.js                # Copied from lib/
-│       ├── enforce-questions.sh    # Copied from lib/
-│       └── deps/
-│           ├── go/                 # Go installation
-│           └── gopath/             # Go tools (golangci-lint, goimports, etc.)
+│       └── enforce-questions.sh    # Copied from lib/
 │
 └── [your project files]
 ```
@@ -516,20 +532,25 @@ project/
 - **jq** (for JSON manipulation in bash)
 - **Supported terminal:** Ghostty 1.3.0+, Terminal.app, or iTerm2
 
-### Container Requirements
+### Container Requirements (via .cf fragments)
 
-- **Node.js** (Claude Code)
-- **Go** (installed by dependencies.sh)
-- **golangci-lint** (installed by dependencies.sh)
-- **goimports** (installed by dependencies.sh)
-- **prettier** (installed via npm)
+Dependencies are installed at build time via Containerfile fragments. The bundled `go.cf` installs:
+
+- **Go** (compiler and runtime)
+- **golangci-lint** (Go linter)
+- **goimports** (Go import formatter)
+- **whitespace-tools** (newline, trailingspace)
+- **prettier** (code formatter, from upstream)
+
+Users can add custom `.cf` fragments for additional dependencies (e.g., Playwright, Python, Rust).
 
 ---
 
 ## Performance
 
-- **First run**: 3-5 minutes (installs Go + tools)
-- **Subsequent runs**: 10-20 seconds (container startup)
+- **First build**: 2-3 minutes (downloads and builds container with deps)
+- **Subsequent builds**: 10-30 seconds (cached layers)
+- **Container startup**: ~5 seconds
 - **Notification latency**: ~300ms from trigger to display
 - **Memory per container**: ~500MB
 
