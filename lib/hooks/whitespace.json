@@ -1,0 +1,21 @@
+{
+  "description": "Fix whitespace (trailing spaces, newline at EOF)",
+  "deps": ["whitespace-tools"],
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | xargs newline"
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | xargs trailingspace"
+          }
+        ]
+      }
+    ]
+  }
+}

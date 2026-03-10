@@ -48,28 +48,28 @@ This will:
 - Append selected dependency fragments (if any via `--deps=`)
 - Build the container image
 - Create a `.claude` directory if it doesn't exist
-- Merge claudeman hooks into `.claude/settings.json`
-- Start Claude Code in YOLO mode with audio notifications
+- Merge selected hooks into `.claude/settings.json` (if any via `--hooks=`)
+- Start Claude Code in YOLO mode
 
 ### Examples
 
 ```bash
-claudeman run                        # Minimal container (no extra deps)
-claudeman run --deps=go              # With Go toolchain
-claudeman run --deps=go,playwright   # Multiple deps
-claudeman run --deps=all             # All available deps
-claudeman run -- bash                # Shell access
-claudeman listen                     # Start notification listener
-claudeman deps                       # List available deps
+claudeman run                                  # Minimal (no deps, no hooks)
+claudeman run --deps=go --hooks=prettier       # Go + prettier formatting
+claudeman run --hooks=prettier,questions       # Prettier + notifications
+claudeman run --deps=all --hooks=all           # Everything
+claudeman run -- bash                          # Shell access
+claudeman listen                               # Start notification listener
+claudeman deps                                 # List available deps
+claudeman hooks                                # List available hooks
 ```
 
 ### Run Options
 
-| Flag                     | Description                                             |
-| ------------------------ | ------------------------------------------------------- |
-| `--deps=DEPS`            | Dependencies to install (go,python,rust,playwright,all) |
-| `--no-completion-notify` | Disable task completion notifications                   |
-| `--no-question-enforce`  | Disable forcing AskUserQuestion for questions           |
+| Flag            | Description                                             |
+| --------------- | ------------------------------------------------------- |
+| `--deps=DEPS`   | Dependencies to install (go,python,rust,playwright,all) |
+| `--hooks=HOOKS` | Hooks to enable (prettier,gofmt,q-notify,q-enforce,all) |
 
 ### Listen Options
 
@@ -100,12 +100,11 @@ One listener instance handles all claudeman sessions. Notifications will activat
 
 ## Features
 
-- **Auto-formatting**: Prettier, gofmt, goimports run on file save
-- **Whitespace hygiene**: Trailing space removal, newline at EOF
 - **Opt-in deps**: Go, Python, Rust, Playwright (select with `--deps=`)
-- **Audio notifications**: macOS notifications when Claude finishes tasks (optional)
+- **Opt-in hooks**: Formatting, notifications, question enforcement (select with `--hooks=`)
+- **Audio notifications**: macOS notifications when Claude asks questions (optional, via `--hooks=questions`)
 - **Sandboxed**: Container isolation with access only to current directory
-- **Extensible**: Add custom dependencies via Containerfile fragments
+- **Extensible**: Add custom deps and hooks via XDG config directories
 
 ## Dependencies
 
@@ -117,12 +116,13 @@ Dependencies are installed at build time via Containerfile fragments (`.cf` file
 claudeman deps  # List available dependencies
 ```
 
-| Name       | Description                   |
-| ---------- | ----------------------------- |
-| go         | Go toolchain + linters        |
-| python     | Python 3 + pip + venv         |
-| rust       | Rust + Cargo                  |
-| playwright | Playwright + Chromium browser |
+| Name             | Description                   |
+| ---------------- | ----------------------------- |
+| go               | Go toolchain + linters        |
+| python           | Python 3 + pip + venv         |
+| rust             | Rust + Cargo                  |
+| playwright       | Playwright + Chromium browser |
+| whitespace-tools | newline and trailingspace     |
 
 **Usage:**
 
@@ -145,21 +145,42 @@ Fragments are appended to the upstream Claude Code Dockerfile, which uses a `nod
 2. Run with new deps: `claudeman run --deps=go,playwright`
 3. Use `/resume` in Claude to continue where you left off
 
-## Configuration
+## Hooks
 
-The included `hooks.json` provides hooks for:
+Hooks are JSON files that configure Claude Code automation. Select which hooks to enable with `--hooks=`.
 
-- Code formatting (prettier, gofmt, goimports)
-- Whitespace hygiene (trailing space, newline at EOF)
+**Available hooks:**
 
-**Hook Merging:**
+```bash
+claudeman hooks  # List available hooks
+```
 
-- First run: `hooks.json` becomes `.claude/settings.json`
-- Subsequent runs: Hooks are merged
-  - User settings preserved
-  - Hooks with same matcher are combined (user hooks run first)
-  - New matchers are added
-  - Updates happen automatically on each `claudeman run`
+| Name       | Requires         | Description                                     |
+| ---------- | ---------------- | ----------------------------------------------- |
+| prettier   | -                | Auto-format with prettier                       |
+| whitespace | whitespace-tools | Fix trailing spaces and newline at EOF          |
+| gofmt      | go               | Auto-format Go files with gofmt and goimports   |
+| q-notify   | -                | Notify when Claude asks a question              |
+| q-enforce  | -                | Force Claude to always use AskUserQuestion tool |
+
+Hooks with dependencies will error if the required dep is not selected.
+
+**Usage:**
+
+```bash
+claudeman run --hooks=prettier              # Just prettier formatting
+claudeman run --hooks=prettier,q-notify     # Prettier + notifications
+claudeman run --hooks=all                   # All hooks
+claudeman run                               # No hooks (minimal)
+```
+
+**Custom hooks:** Create your own `.json` files in `~/.config/claudeman/hooks/` to override bundled hooks or add new ones.
+
+**How it works:**
+
+- Selected hooks are merged into `.claude/settings.json` on each `claudeman run`
+- Non-hook user settings are preserved
+- Changes take effect on next session start
 
 ## Requirements
 
