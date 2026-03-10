@@ -1,5 +1,5 @@
 # Go toolchain and development tools
-# Installs: Go 1.24.3, golangci-lint, goimports, whitespace-tools
+# Installs: Go 1.24.3, golangci-lint, goimports
 
 ARG TARGETARCH
 
@@ -14,10 +14,3 @@ ENV GOPATH="/home/node/go"
 # Install Go tools
 RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.0 \
     && go install golang.org/x/tools/cmd/goimports@latest
-
-# Install whitespace-tools from pre-built binaries
-RUN curl -fsSL "https://github.com/scottrigby/whitespace-tools/releases/download/v1.0.1/whitespace-tools_1.0.1_linux_${TARGETARCH}.tar.gz" -o /tmp/ws.tgz \
-    && tar -C /tmp -xzf /tmp/ws.tgz \
-    && mv /tmp/newline /tmp/trailingspace /home/node/go/bin/ \
-    && chmod +x /home/node/go/bin/newline /home/node/go/bin/trailingspace \
-    && rm /tmp/ws.tgz

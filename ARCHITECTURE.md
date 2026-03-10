@@ -44,25 +44,25 @@ Claudeman is a tool that runs Claude Code in a Podman container with custom deve
 ## High-Level Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────┐
 │ Host Machine (macOS)                                     │
 │                                                          │
-│  ┌────────────────────┐         ┌──────────────────┐   │
-│  │ Terminal Tab 1     │         │ Terminal Tab 2    │   │
-│  │ (Ghostty/Terminal/ │         │ (Ghostty/Terminal/│   │
-│  │  iTerm2)           │         │  iTerm2)          │   │
-│  │                    │         │                   │   │
-│  │ $ claudeman run    │         │ $ claudeman run   │   │
-│  │                    │         │                   │   │
-│  │ ┌────────────────┐ │         │ ┌───────────────┐│   │
-│  │ │  Podman        │ │         │ │  Podman       ││   │
-│  │ │  Container     │ │         │ │  Container    ││   │
-│  │ │                │ │         │ │               ││   │
-│  │ │ Claude Code    │ │         │ │ Claude Code   ││   │
-│  │ │ + Go tools     │ │         │ │ + Go tools    ││   │
-│  │ │ + Hooks        │ │         │ │ + Hooks       ││   │
-│  │ └───────┬────────┘ │         │ └──────┬────────┘│   │
-│  └─────────┼──────────┘         └────────┼─────────┘   │
+│  ┌────────────────────┐         ┌────────────────────┐   │
+│  │ Terminal Tab 1     │         │ Terminal Tab 2     │   │
+│  │ (Ghostty/Terminal/ │         │ (Ghostty/Terminal/ │   │
+│  │  iTerm2)           │         │  iTerm2)           │   │
+│  │                    │         │                    │   │
+│  │ $ claudeman run    │         │ $ claudeman run    │   │
+│  │                    │         │                    │   │
+│  │ ┌────────────────┐ │         │ ┌────────────────┐ │   │
+│  │ │  Podman        │ │         │ │  Podman        │ │   │
+│  │ │  Container     │ │         │ │  Container     │ │   │
+│  │ │                │ │         │ │                │ │   │
+│  │ │ Claude Code    │ │         │ │ Claude Code    │ │   │
+│  │ │ + Go tools     │ │         │ │ + Go tools     │ │   │
+│  │ │ + Hooks        │ │         │ │ + Hooks        │ │   │
+│  │ └───────┬────────┘ │         │ └──────┬─────────┘ │   │
+│  └─────────┼──────────┘         └────────┼───────────┘   │
 │            │                              │              │
 │            │  TCP notifications           │              │
 │            │  (host.containers.internal)  │              │
@@ -181,15 +181,15 @@ The automatic notification system is powered by Claude Code's hook system:
 ┌─────────────────────────────────────────────────────────┐
 │ Claude Code Container                                   │
 │                                                         │
-│  ┌──────────────────────────────────────────┐           │
-│  │ hooks.json (auto-invoked by Claude Code) │           │
-│  └────────────┬─────────────────────────────┘           │
+│  ┌─────────────────────────────────────────────┐        │
+│  │ settings.json hooks (selected via --hooks=) │        │
+│  └───────────────┬─────────────────────────────┘        │
 │               │                                         │
 │               ├─► PreToolUse(AskUserQuestion)           │
 │               │   → dedup.js → notify.js -t question    │
 │               │                                         │
-│               ├─► PostToolUse(active tools)             │
-│               │   → check-completion.js → notify.js     │
+│               ├─► PostToolUse(Write|Edit|MultiEdit)     │
+│               │   → prettier, gofmt, goimports          │
 │               │                                         │
 │               └─► UserPromptSubmit                      │
 │                   → enforce-questions.sh                │
@@ -220,23 +220,25 @@ The automatic notification system is powered by Claude Code's hook system:
 
 ---
 
-#### 3. `hooks.json` (Claude Code Configuration)
+#### 3. Modular Hooks (`lib/hooks/*.json`)
 
-**Purpose:** Defines automatic hooks that trigger notifications
+**Purpose:** Define automatic hooks that trigger formatting and notifications
 
-**Hooks:**
+Hooks are stored as separate JSON files for modularity. Select which hooks to enable with `--hooks=`:
 
-##### PreToolUse Hook (Question Detection)
+| File              | Hook Type        | Requires         | Purpose                           |
+| ----------------- | ---------------- | ---------------- | --------------------------------- |
+| `prettier.json`   | PostToolUse      | -                | Auto-format with prettier         |
+| `whitespace.json` | PostToolUse      | whitespace-tools | Fix trailing spaces, newline EOF  |
+| `gofmt.json`      | PostToolUse      | go               | Auto-format Go files              |
+| `q-notify.json`   | PreToolUse       | -                | Notify when Claude asks questions |
+| `q-enforce.json`  | UserPromptSubmit | -                | Force AskUserQuestion tool usage  |
 
-Fires BEFORE AskUserQuestion tool is used. Runs dedup.js with notify.js to send a question notification.
+**User overrides:** `~/.config/claudeman/hooks/` (same filename takes precedence)
 
-##### PostToolUse Hook (Task Completion)
+**Selection:** Only hooks specified via `--hooks=` are merged into `.claude/settings.json`. Running without `--hooks=` clears all hooks.
 
-Fires AFTER active tools complete (Write, Edit, Bash, etc.). Runs check-completion.js to evaluate whether to send a completion notification.
-
-##### UserPromptSubmit Hook (Structured Question Enforcement)
-
-Modifies user input to force Claude to use AskUserQuestion. Runs enforce-questions.sh to append instructions to the user's prompt.
+**Dependencies:** Hooks can declare required deps via `"deps": ["go"]` in the JSON. Claudeman validates that required deps are selected before merging hooks.
 
 #### 4. `notify.js` (Notification Sender)
 
@@ -259,25 +261,7 @@ Modifies user input to force Claude to use AskUserQuestion. Runs enforce-questio
 
 Sends four lines over TCP: event type, TERM_PROGRAM, TERM_ID, and message, each separated by a newline character.
 
-#### 5. `check-completion.js` (Completion Detector)
-
-**Purpose:** Detects task completion and sends notifications
-
-**Logic:**
-
-1. Reads hook input from stdin (JSON with tool_name)
-2. Checks if tool is "active" (Write, Edit, Bash, etc.)
-3. Checks cooldown (15 seconds since last notification)
-4. Updates state file: `/tmp/claudeman-termid-${TERM_ID}.json`
-5. Sends completion notification
-
-**State Management:**
-
-- Per-session state using TERM_ID
-- Cooldown prevents notification spam
-- State file tracks `lastNotification` and `lastToolTime`
-
-#### 6. `dedup.js` (Deduplication Wrapper)
+#### 5. `dedup.js` (Deduplication Wrapper)
 
 **Purpose:** Prevents duplicate notifications from Claude's hook bug
 
@@ -290,7 +274,7 @@ Sends four lines over TCP: event type, TERM_PROGRAM, TERM_ID, and message, each 
 
 **Why needed:** Claude Code sometimes fires hooks 2-4 times for a single event (known bug). Deduplication ensures only one notification is sent.
 
-#### 7. `enforce-questions.sh` (Question Enforcer)
+#### 6. `enforce-questions.sh` (Question Enforcer)
 
 **Purpose:** Forces Claude to always use AskUserQuestion tool
 
@@ -306,14 +290,14 @@ Sends four lines over TCP: event type, TERM_PROGRAM, TERM_ID, and message, each 
 
 ## Notification Flow
 
-When Claude asks a question or completes a task:
+When Claude asks a question (with `--hooks=questions` enabled):
 
-1. **Hook fires** (PreToolUse for questions, PostToolUse for completion)
-2. **Hook script runs** (dedup.js → notify.js or check-completion.js → notify.js)
+1. **Hook fires** (PreToolUse for AskUserQuestion)
+2. **Hook script runs** (dedup.js → notify.js)
 3. **TCP message sent** to listener: `eventType\nTERM_PROGRAM\nTERM_ID\nmessage\n`
 4. **Listener receives** and parses the message
 5. **macOS notification** shown with emoji and message (OK/Cancel buttons)
-6. **Audio plays** ("claude-man needs input" or "claude-man task complete")
+6. **Audio plays** ("claude-man needs input")
 7. **User clicks OK** → Terminal tab focused using appropriate AppleScript for terminal type
 
 ---
@@ -377,13 +361,18 @@ claudeman/
 │   │   ├── go.cf                   # Go toolchain + linters
 │   │   ├── python.cf               # Python 3 + pip + venv
 │   │   ├── rust.cf                 # Rust + Cargo
-│   │   └── playwright.cf           # Playwright + Chromium
-│   ├── check-completion.js         # Task completion detector
+│   │   ├── playwright.cf           # Playwright + Chromium
+│   │   └── whitespace-tools.cf     # newline + trailingspace
+│   ├── hooks/                      # Bundled hook configurations
+│   │   ├── prettier.json           # Prettier formatting
+│   │   ├── whitespace.json         # Whitespace fixes
+│   │   ├── gofmt.json              # Go formatting
+│   │   ├── q-notify.json           # Question notifications
+│   │   └── q-enforce.json          # Force AskUserQuestion
 │   ├── dedup.js                    # Deduplication wrapper
 │   ├── enforce-questions.sh        # Question enforcer
-│   ├── hooks.json                  # Hook configuration
 │   ├── listener.js                 # Host notification listener
-│   ├── merge-hooks.js              # Merges hooks into settings.json
+│   ├── merge-hooks.js              # Merges selected hooks into settings.json
 │   └── notify.js                   # Notification sender
 │
 ├── ARCHITECTURE.md                 # This file
@@ -391,20 +380,21 @@ claudeman/
 
 User config directory (XDG standard):
 ~/.config/claudeman/
-└── deps/                           # User overrides (same name takes precedence)
-    └── *.cf                        # Containerfile fragments
+├── deps/                           # User deps (same name overrides bundled)
+│   └── *.cf                        # Containerfile fragments
+└── hooks/                          # User hooks (same name overrides bundled)
+    └── *.json                      # Hook configurations
 
 Project directory (when running claudeman):
 project/
 ├── .claude/
 │   ├── .claude.json                # Claude API key config (local)
 │   ├── .bash_history               # Shell history
-│   ├── settings.json               # Claude settings (includes merged hooks)
+│   ├── settings.json               # Claude settings (includes selected hooks)
 │   ├── deps/                       # Project-specific deps (always included)
 │   │   └── *.cf                    # Containerfile fragments
 │   └── claudeman/
 │       ├── notify.js               # Copied from lib/
-│       ├── check-completion.js     # Copied from lib/
 │       ├── dedup.js                # Copied from lib/
 │       └── enforce-questions.sh    # Copied from lib/
 │
@@ -456,17 +446,7 @@ project/
 - Self-cleaning (stale locks expire)
 - Works across processes (multiple sessions)
 
-### 5. 15-Second Cooldown on Completion
-
-**Decision:** Wait 15 seconds between completion notifications
-**Why:**
-
-- Prevents notification spam during rapid tool usage
-- Balances responsiveness with noise reduction
-- User can still see work happening in terminal
-- Adjustable if needed (easy to tune)
-
-### 6. Structured Question Enforcement
+### 5. Structured Question Enforcement
 
 **Decision:** Use UserPromptSubmit hook to force AskUserQuestion
 **Why:**
@@ -476,7 +456,7 @@ project/
 - Slight latency acceptable for automation context
 - Can be disabled by removing hook if needed
 
-### 7. Local Project Scoping
+### 6. Local Project Scoping
 
 **Decision:** Check `.claude/.claude.json` (not `~/.claude/.claude.json`)
 **Why:**
@@ -486,14 +466,13 @@ project/
 - Container uses local config, not global
 - Clearer separation between projects
 
-### 8. Audio + Visual Notifications
+### 7. Audio + Visual Notifications
 
 **Decision:** Use both macOS dialog and audio announcement
 **Why:**
 
 - Audio alerts user even when not looking at screen
 - Dialog provides detailed information
-- Different audio for different event types (task complete vs. needs input)
 - User can disable audio by killing listener
 
 ---
@@ -503,8 +482,8 @@ project/
 ### What Runs in Container
 
 - Claude Code
-- Go and development tools
-- Hook scripts (check-completion.js, dedup.js, enforce-questions.sh)
+- Go and development tools (if `--deps=go`)
+- Hook scripts (dedup.js, enforce-questions.sh)
 - notify.js (sends notifications)
 
 ### What Runs on Host
@@ -580,6 +559,7 @@ The system is designed to fail gracefully:
 **No notifications?**
 
 - Check if listener.js is running on the host
+- Verify `--hooks=questions` was passed to `claudeman run`
 - Verify `TERM_PROGRAM` and `TERM_ID` environment variables are set in the container
 
 **Wrong tab focused?**
@@ -592,15 +572,11 @@ The system is designed to fail gracefully:
 - Requires Ghostty 1.3.0 or later for AppleScript support
 - Check Ghostty release notes: https://ghostty.org/docs/install/release-notes/1-3-0
 
-**Too many notifications?**
-
-- Increase cooldown in check-completion.js (default: 15s)
-- Edit hooks.json to reduce active tools list
-
 **Hook changes not taking effect?**
 
 - Changes to settings.json hooks require a Claude Code session restart
 - Hooks are NOT hot-reloaded during an active session
+- Run `claudeman run` with desired `--hooks=` to refresh
 
 ---
 

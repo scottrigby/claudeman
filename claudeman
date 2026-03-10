@@ -76,6 +76,55 @@ function list_available_deps() {
     printf '%s\n' "${deps[@]}" | sort | tr '\n' ' ' | sed 's/ $//'
 }
 
+# Find a hook file by name, checking XDG config first, then bundled
+function find_hook_file() {
+    local name="$1"
+    local xdg_config="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+    # Check XDG config first (user override)
+    if [ -f "$xdg_config/claudeman/hooks/${name}.json" ]; then
+        echo "$xdg_config/claudeman/hooks/${name}.json"
+        return 0
+    fi
+
+    # Fall back to bundled
+    if [ -f "$LIB_DIR/hooks/${name}.json" ]; then
+        echo "$LIB_DIR/hooks/${name}.json"
+        return 0
+    fi
+
+    return 1
+}
+
+# List available hooks (from bundled + XDG config)
+function list_available_hooks() {
+    local hooks=()
+    local xdg_config="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+    # Bundled hooks
+    if [ -d "$LIB_DIR/hooks" ]; then
+        for json in "$LIB_DIR/hooks"/*.json; do
+            [ -f "$json" ] && hooks+=("$(basename "$json" .json)")
+        done
+    fi
+
+    # XDG config hooks (may add new ones or override bundled)
+    if [ -d "$xdg_config/claudeman/hooks" ]; then
+        for json in "$xdg_config/claudeman/hooks"/*.json; do
+            if [ -f "$json" ]; then
+                local name=$(basename "$json" .json)
+                # Add if not already in list
+                if [[ ! " ${hooks[*]} " =~ " ${name} " ]]; then
+                    hooks+=("$name")
+                fi
+            fi
+        done
+    fi
+
+    # Sort and output
+    printf '%s\n' "${hooks[@]}" | sort | tr '\n' ' ' | sed 's/ $//'
+}
+
 # Generate image name:tag based on selected deps
 function get_image_name() {
     local selected_deps="$1"
@@ -196,13 +245,6 @@ function run_container {
         "-e TERM_PROGRAM=${TERM_PROGRAM:-}"
         "-e TERM_ID=$term_id"
     )
-    # Pass claudeman configuration to container
-    if [[ -n ${CLAUDEMAN_NOTIFY_COMPLETION:-} ]]; then
-        env_vars+=("-e CLAUDEMAN_NOTIFY_COMPLETION=$CLAUDEMAN_NOTIFY_COMPLETION")
-    fi
-    if [[ -n ${CLAUDEMAN_ENFORCE_QUESTIONS:-} ]]; then
-        env_vars+=("-e CLAUDEMAN_ENFORCE_QUESTIONS=$CLAUDEMAN_ENFORCE_QUESTIONS")
-    fi
 
     # Common volume mounts
     local volumes=(
@@ -222,7 +264,7 @@ function run_container {
 }
 
 function usage {
-    echo "Usage: claudeman [run|listen|deps|help] [options]"
+    echo "Usage: claudeman [run|listen|deps|hooks|help] [options]"
     echo ""
     echo "Run from within a project directory"
     echo ""
@@ -230,14 +272,16 @@ function usage {
     echo "  run [options] [--] [cmd]   Run an interactive container"
     echo "  listen [options]           Start the notification listener"
     echo "  deps                       List available dependencies"
+    echo "  hooks                      List available hooks"
     echo "  help                       Displays help"
     echo ""
     echo "Run Options:"
     echo "  --deps=DEPS              Dependencies to install (comma-separated)"
     echo "                           Examples: --deps=go  --deps=go,python  --deps=all"
     echo "                           Default: none"
-    echo "  --no-completion-notify   Disable task completion notifications"
-    echo "  --no-question-enforce    Disable forcing AskUserQuestion for questions"
+    echo "  --hooks=HOOKS            Hooks to enable (comma-separated)"
+    echo "                           Examples: --hooks=prettier  --hooks=prettier,questions  --hooks=all"
+    echo "                           Default: none"
     echo "  --                       Separator between options and command"
     echo ""
     echo "Listen Options:"
@@ -246,19 +290,25 @@ function usage {
     echo "                           Note: Setting 0-100 overrides system mute"
     echo ""
     echo "Examples:"
-    echo "  claudeman run                        # Minimal container (no deps)"
-    echo "  claudeman run --deps=go              # With Go toolchain"
-    echo "  claudeman run --deps=go,playwright   # With Go and Playwright"
-    echo "  claudeman run --deps=all             # All available deps"
-    echo "  claudeman run -- bash                # Shell access"
-    echo "  claudeman listen                     # Start notification listener"
-    echo "  claudeman deps                       # List available deps"
+    echo "  claudeman run                                  # Minimal (no deps, no hooks)"
+    echo "  claudeman run --deps=go --hooks=prettier       # Go + prettier hook"
+    echo "  claudeman run --hooks=prettier,q-notify       # Prettier + question notifications"
+    echo "  claudeman run --deps=all --hooks=all           # Everything"
+    echo "  claudeman run -- bash                          # Shell access"
+    echo "  claudeman listen                               # Start notification listener"
+    echo "  claudeman deps                                 # List available deps"
+    echo "  claudeman hooks                                # List available hooks"
     echo ""
     echo "Dependencies:"
     echo "  Deps are Containerfile fragments (.cf files) installed at build time."
     echo "  Available: $(list_available_deps)"
     echo "  User overrides: ~/.config/claudeman/deps/*.cf"
     echo "  Project deps:   .claude/deps/*.cf (always included)"
+    echo ""
+    echo "Hooks:"
+    echo "  Hooks are JSON files that configure Claude Code automation."
+    echo "  Available: $(list_available_hooks)"
+    echo "  User overrides: ~/.config/claudeman/hooks/*.json"
     echo ""
 }
 
@@ -279,9 +329,8 @@ case $command in
         echo "Running interactive container..."
 
         # Parse run flags (before --)
-        NOTIFY_COMPLETION=true
-        ENFORCE_QUESTIONS=true
         SELECTED_DEPS=""
+        SELECTED_HOOKS=""
 
         while [[ $# -gt 0 ]]; do
             case $1 in
@@ -289,12 +338,8 @@ case $command in
                     SELECTED_DEPS="${1#--deps=}"
                     shift
                     ;;
-                --no-completion-notify)
-                    NOTIFY_COMPLETION=false
-                    shift
-                    ;;
-                --no-question-enforce)
-                    ENFORCE_QUESTIONS=false
+                --hooks=*)
+                    SELECTED_HOOKS="${1#--hooks=}"
                     shift
                     ;;
                 --)
@@ -312,32 +357,71 @@ case $command in
         # Create claudeman directory structure
         mkdir -p .claude/claudeman
 
-        # Merge hooks into settings.json
-        if [ -f "$LIB_DIR/hooks.json" ]; then
-            echo "Merging hooks into settings.json"
-            node "$LIB_DIR/merge-hooks.js" .claude/settings.json "$LIB_DIR/hooks.json"
+        # Collect selected hook files
+        HOOK_FILES=""
+        if [ -n "$SELECTED_HOOKS" ]; then
+            if [ "$SELECTED_HOOKS" = "all" ]; then
+                # Include all available hooks
+                for hook in $(list_available_hooks); do
+                    hook_path=$(find_hook_file "$hook")
+                    [ -n "$hook_path" ] && HOOK_FILES="$HOOK_FILES $hook_path"
+                done
+            else
+                # Include specific hooks
+                IFS=',' read -ra hooks_array <<< "$SELECTED_HOOKS"
+                for hook in "${hooks_array[@]}"; do
+                    hook_path=$(find_hook_file "$hook")
+                    if [ -n "$hook_path" ]; then
+                        HOOK_FILES="$HOOK_FILES $hook_path"
+                    else
+                        echo "Warning: Hook '$hook' not found"
+                    fi
+                done
+            fi
+        fi
+
+        # Validate hook dependencies
+        if [ -n "$HOOK_FILES" ]; then
+            # Build list of selected deps for comparison
+            if [ "$SELECTED_DEPS" = "all" ]; then
+                DEPS_LIST=$(list_available_deps | tr ' ' '\n')
+            else
+                DEPS_LIST=$(echo "$SELECTED_DEPS" | tr ',' '\n')
+            fi
+
+            # Check each hook's required deps
+            for hook_path in $HOOK_FILES; do
+                REQUIRED=$(node -e "const h=require('$hook_path'); (h.deps||[]).forEach(d=>console.log(d))")
+                for req in $REQUIRED; do
+                    if ! echo "$DEPS_LIST" | grep -q "^${req}$"; then
+                        hook_name=$(basename "$hook_path" .json)
+                        echo "Error: Hook '$hook_name' requires dep '$req'"
+                        echo "  Add --deps=$req or remove --hooks=$hook_name"
+                        exit 1
+                    fi
+                done
+            done
+        fi
+
+        # Merge selected hooks into settings.json
+        if [ -n "$HOOK_FILES" ]; then
+            node "$LIB_DIR/merge-hooks.js" .claude/settings.json $HOOK_FILES
+        else
+            # No hooks selected - clear hooks from settings.json
+            node "$LIB_DIR/merge-hooks.js" .claude/settings.json
         fi
 
         # Always copy claudeman files (get updates)
         if [ -f "$LIB_DIR/notify.js" ]; then
-            echo "Updating notify.js from $LIB_DIR"
             cp "$LIB_DIR/notify.js" .claude/claudeman/notify.js
         fi
 
-        if [ -f "$LIB_DIR/check-completion.js" ]; then
-            echo "Updating check-completion.js from $LIB_DIR"
-            cp "$LIB_DIR/check-completion.js" .claude/claudeman/check-completion.js
-            chmod +x .claude/claudeman/check-completion.js
-        fi
-
         if [ -f "$LIB_DIR/dedup.js" ]; then
-            echo "Updating dedup.js from $LIB_DIR"
             cp "$LIB_DIR/dedup.js" .claude/claudeman/dedup.js
             chmod +x .claude/claudeman/dedup.js
         fi
 
         if [ -f "$LIB_DIR/enforce-questions.sh" ]; then
-            echo "Updating enforce-questions.sh from $LIB_DIR"
             cp "$LIB_DIR/enforce-questions.sh" .claude/claudeman/enforce-questions.sh
             chmod +x .claude/claudeman/enforce-questions.sh
         fi
@@ -345,10 +429,6 @@ case $command in
         # Build container and get image name
         IMAGE_NAME=$(get_image_name "$SELECTED_DEPS")
         build_container "$SELECTED_DEPS"
-
-        # Export configuration as environment variables for container
-        export CLAUDEMAN_NOTIFY_COMPLETION="$NOTIFY_COMPLETION"
-        export CLAUDEMAN_ENFORCE_QUESTIONS="$ENFORCE_QUESTIONS"
 
         [ $# -eq 0 ] && CMD="claude --dangerously-skip-permissions" || CMD="$@"
         run_container "$IMAGE_NAME" "$CMD"
@@ -404,6 +484,21 @@ case $command in
         echo ""
         echo "Usage: claudeman run --deps=go,python"
         echo "       claudeman run --deps=all"
+        ;;
+    hooks)
+        echo "Available hooks:"
+        echo ""
+        for hook in $(list_available_hooks); do
+            hook_path=$(find_hook_file "$hook")
+            if [ -n "$hook_path" ]; then
+                # Extract description from JSON
+                desc=$(node -e "console.log(require('$hook_path').description || '(no description)')")
+                printf "  %-12s %s\n" "$hook" "$desc"
+            fi
+        done
+        echo ""
+        echo "Usage: claudeman run --hooks=prettier,q-notify"
+        echo "       claudeman run --hooks=all"
         ;;
     help)
         usage
