@@ -286,8 +286,6 @@ function usage {
     echo ""
     echo "Listen Options:"
     echo "  -p, --port <port>        Listener port (default: 8080)"
-    echo "  -v, --volume <0-100|auto>  Audio volume (default: auto)"
-    echo "                           Note: Setting 0-100 overrides system mute"
     echo ""
     echo "Examples:"
     echo "  claudeman run                                  # Minimal (no deps, no hooks)"
@@ -436,16 +434,11 @@ case $command in
     listen)
         # Parse listen flags
         PORT=8080
-        VOLUME=auto
 
         while [[ $# -gt 0 ]]; do
             case $1 in
                 -p|--port)
                     PORT="$2"
-                    shift 2
-                    ;;
-                -v|--volume)
-                    VOLUME="$2"
                     shift 2
                     ;;
                 *)
@@ -466,9 +459,9 @@ case $command in
             echo "Error: listener.js not found at $LIB_DIR/listener.js"
             exit 1
         fi
-        echo "Starting notification listener on port $PORT (volume: $VOLUME)..."
+        echo "Starting notification listener on port $PORT..."
         echo "Press Ctrl+C to stop"
-        node "$LIB_DIR/listener.js" -p "$PORT" -v "$VOLUME"
+        node "$LIB_DIR/listener.js" -p "$PORT"
         ;;
     deps)
         echo "Available dependencies:"
