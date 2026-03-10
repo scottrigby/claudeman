@@ -73,10 +73,9 @@ claudeman hooks                                # List available hooks
 
 ### Listen Options
 
-| Flag                         | Description                                              |
-| ---------------------------- | -------------------------------------------------------- |
-| `-p, --port <port>`          | Listener port (default: 8080)                            |
-| `-v, --volume <0-100\|auto>` | Audio volume (default: auto). Note: 0-100 overrides mute |
+| Flag                | Description                   |
+| ------------------- | ----------------------------- |
+| `-p, --port <port>` | Listener port (default: 8080) |
 
 ## Audio Notifications
 
