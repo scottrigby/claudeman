@@ -2,18 +2,33 @@
 
 Run [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) in a sandboxed container with custom dependencies, using the upstream Anthropic container.
 
-## Why This Approach?
+## Why Run in a Container?
 
-Claude Code's official container is actively evolving without version tags or backwards compatibility guarantees. While you could maintain a custom Dockerfile, it quickly falls behind upstream changes.
+Claude Code offers three isolation levels:
 
-This tool solves this by:
+| Aspect        | Native        | `--sandbox`       | Container                  |
+| ------------- | ------------- | ----------------- | -------------------------- |
+| Filesystem    | Full access   | Write to cwd only | Only `/workspace`          |
+| Network       | Full access   | Domain allowlist  | Firewall-controlled        |
+| Env variables | All inherited | All inherited     | Explicit pass-through only |
+| SSH agent     | Full access   | Full access\*     | No access                  |
+| Dependencies  | Pollutes host | Pollutes host     | Isolated per-project       |
 
-- Using the latest upstream Anthropic container (fetched fresh each run)
-- Installing custom dependencies at build time via Containerfile fragments
-- Avoiding the maintenance burden of a custom container image
+\* Sandbox can block SSH agent via `sandbox.filesystem.denyRead`, but doesn't by default
+
+**Why containers win for secrets**: Native and sandbox modes inherit your shell's environment variables (`AWS_SECRET_ACCESS_KEY`, `GITHUB_TOKEN`, etc.) and SSH agent. Containers don't—credentials must be explicitly mounted, so Claude can't access what was never given.
+
+See [Anthropic's devcontainer docs](https://docs.anthropic.com/en/docs/claude-code/devcontainer) for details.
+
+## Why This Tool?
+
+Claude Code's official container is actively evolving without version tags. While you could maintain a custom Dockerfile, it quickly falls behind.
+
+Claudeman solves this by:
+
+- Fetching the latest upstream Dockerfile on each run
+- Appending your dependency fragments at build time
 - Staying current with Anthropic's updates automatically
-
-Instead of `FROM anthropic/claude-code` (which doesn't exist yet as a hosted image), this downloads the official Dockerfile on each run and appends your dependency fragments before building.
 
 ## Prerequisites
 
