@@ -1,4 +1,5 @@
 {
+  "type": "module",
   "dependencies": {
     "@devcontainers/cli": "^0.84.0"
   }

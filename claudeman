@@ -9,12 +9,19 @@
  * - Dynamic environment variables (TERM_PROGRAM, TERM_ID)
  */
 
-const { execSync, spawn } = require("child_process");
-const fs = require("fs");
-const path = require("path");
-const https = require("https");
-const os = require("os");
-const readline = require("readline");
+import { execSync, spawn } from "child_process";
+import fs from "fs";
+import path from "path";
+import https from "https";
+import os from "os";
+import readline from "readline";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+import { mergeHooks } from "./lib/merge-hooks.js";
+
+// ESM equivalent of __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Directories
 const SCRIPT_DIR = __dirname;
@@ -963,9 +970,6 @@ Examples:
           }
 
           // Merge hooks (preserves existing, deduplicates)
-          const { mergeHooks } = require(
-            path.join(SCRIPT_DIR, "lib", "merge-hooks.js"),
-          );
           const merged = mergeHooks(settings, sampleHooks);
 
           fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2));
@@ -1069,7 +1073,6 @@ Examples:
         }
         // Run listener directly (it's a long-running process)
         const listenerPath = path.join(SCRIPT_DIR, "lib", "listener.js");
-        const { spawn } = require("child_process");
         const listener = spawn("node", [listenerPath, "-p", String(port)], {
           stdio: "inherit",
         });
