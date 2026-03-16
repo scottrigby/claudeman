@@ -695,7 +695,7 @@ async function runDevcontainer(profileName, workspaceFolder) {
     console.log("Starting devcontainer...\n");
 
     // Run devcontainer up and capture output for container ID
-    const upResult = execSync(`devcontainer ${upArgs.join(" ")}`, {
+    const upResult = execSync(`"${DEVCONTAINER_CLI}" ${upArgs.join(" ")}`, {
       cwd: workspaceFolder,
       encoding: "utf8",
       stdio: ["inherit", "pipe", "inherit"],
@@ -731,7 +731,7 @@ async function runDevcontainer(profileName, workspaceFolder) {
       "--dangerously-skip-permissions",
     ];
 
-    const claudeProc = spawn("devcontainer", execArgs, {
+    const claudeProc = spawn(DEVCONTAINER_CLI, execArgs, {
       stdio: "inherit",
       cwd: workspaceFolder,
     });

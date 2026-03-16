@@ -1,6 +1,14 @@
 {
   "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
   "dependencies": {
     "@devcontainers/cli": "^0.84.0"
+  },
+  "devDependencies": {
+    "execa": "^9.6.1",
+    "vitest": "^4.1.0"
   }
 }
