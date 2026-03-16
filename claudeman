@@ -1,504 +1,1093 @@
-#!/bin/bash
+#!/usr/bin/env node
 
-# claudeman - Run Claude Code in a container with custom dependencies
+/**
+ * claudeman - Run Claude Code in devcontainers with profiles
+ *
+ * Wraps @devcontainers/cli with:
+ * - Profile-based feature selection (app/user/project scopes)
+ * - Feature discovery/search from containers.dev
+ * - Dynamic environment variables (TERM_PROGRAM, TERM_ID)
+ */
 
-set -e
-trap 'echo "Error at line $LINENO"; exit 1' ERR
+const { execSync, spawn } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const https = require("https");
+const os = require("os");
+const readline = require("readline");
 
-# Discover lib directory (Homebrew-aware, resolves symlinks)
-SCRIPT_PATH="${BASH_SOURCE[0]}"
-while [ -L "$SCRIPT_PATH" ]; do
-    SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
-    SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
-    [[ $SCRIPT_PATH != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
-done
-SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
+// Directories
+const SCRIPT_DIR = __dirname;
 
-LIB_DIR="${SCRIPT_DIR}/../share/claudeman/lib"  # Homebrew location
-[ ! -d "$LIB_DIR" ] && LIB_DIR="${SCRIPT_DIR}/lib"  # Development/local install
+// Local devcontainer CLI (from node_modules)
+const DEVCONTAINER_CLI = path.join(
+  SCRIPT_DIR,
+  "node_modules",
+  ".bin",
+  "devcontainer",
+);
 
-# Set path to the devcontainer directory
-CONTAINER_RAW_DIR="https://raw.githubusercontent.com/anthropics/claude-code/refs/heads/main/.devcontainer"
+// Detect container runtime: prefer podman, fall back to docker
+function detectContainerRuntime() {
+  // Check podman first
+  try {
+    execSync("which podman", { stdio: "ignore" });
+    return "podman";
+  } catch {
+    // podman not found
+  }
 
-# Ensure local claude directories exist
-function ensure_claude_dir {
-    echo "Creating claude directories..."
-    mkdir -p .claude
-    touch .claude/.bash_history
+  // Fall back to docker
+  try {
+    execSync("which docker", { stdio: "ignore" });
+    return "docker";
+  } catch {
+    // docker not found
+  }
+
+  return null;
 }
 
-# Find a .cf file by name, checking XDG config first, then bundled
-function find_cf_file() {
-    local name="$1"
-    local xdg_config="${XDG_CONFIG_HOME:-$HOME/.config}"
+const CONTAINER_RUNTIME = detectContainerRuntime();
+const APP_PROFILES_DIR = path.join(SCRIPT_DIR, "profiles");
+const USER_CONFIG_DIR = path.join(
+  process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"),
+  "claudeman",
+);
+const USER_PROFILES_DIR = path.join(USER_CONFIG_DIR, "profiles");
+const PROJECT_PROFILES_DIR = path.join(
+  process.cwd(),
+  ".claude",
+  "claudeman",
+  "profiles",
+);
 
-    # Check XDG config first (user override)
-    if [ -f "$xdg_config/claudeman/deps/${name}.cf" ]; then
-        echo "$xdg_config/claudeman/deps/${name}.cf"
-        return 0
-    fi
+// Upstream devcontainer URLs
+const UPSTREAM_BASE =
+  "https://raw.githubusercontent.com/anthropics/claude-code/main/.devcontainer";
+const UPSTREAM_DOCKERFILE = `${UPSTREAM_BASE}/Dockerfile`;
+const UPSTREAM_FIREWALL = `${UPSTREAM_BASE}/init-firewall.sh`;
+const UPSTREAM_DEVCONTAINER_JSON = `${UPSTREAM_BASE}/devcontainer.json`;
 
-    # Fall back to bundled
-    if [ -f "$LIB_DIR/deps/${name}.cf" ]; then
-        echo "$LIB_DIR/deps/${name}.cf"
-        return 0
-    fi
+// Feature index from containers.dev (updated daily, ~1.5MB)
+const FEATURE_INDEX_URL =
+  "https://containers.dev/static/devcontainer-index.json";
 
-    return 1
+// ============================================================================
+// Utility functions
+// ============================================================================
+
+function fetchUrl(url) {
+  return new Promise((resolve, reject) => {
+    const urlObj = new URL(url);
+    const options = {
+      hostname: urlObj.hostname,
+      path: urlObj.pathname + urlObj.search,
+      headers: {
+        "User-Agent": "claudeman/1.0",
+        Accept: "application/json, text/plain, */*",
+      },
+    };
+
+    https
+      .get(options, (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+          return;
+        }
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => resolve(data));
+      })
+      .on("error", reject);
+  });
 }
 
-# List available deps (from bundled + XDG config)
-function list_available_deps() {
-    local deps=()
-    local xdg_config="${XDG_CONFIG_HOME:-$HOME/.config}"
+// Prompt user to select scope
+function promptScope() {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
 
-    # Bundled deps
-    if [ -d "$LIB_DIR/deps" ]; then
-        for cf in "$LIB_DIR/deps"/*.cf; do
-            [ -f "$cf" ] && deps+=("$(basename "$cf" .cf)")
-        done
-    fi
+    console.log("\nSelect scope:");
+    console.log(
+      "  1) user    - Personal profile (~/.config/claudeman/profiles/)",
+    );
+    console.log("  2) project - Project profile (.claude/claudeman/profiles/)");
 
-    # XDG config deps (may add new ones or override bundled)
-    if [ -d "$xdg_config/claudeman/deps" ]; then
-        for cf in "$xdg_config/claudeman/deps"/*.cf; do
-            if [ -f "$cf" ]; then
-                local name=$(basename "$cf" .cf)
-                # Add if not already in list
-                if [[ ! " ${deps[*]} " =~ " ${name} " ]]; then
-                    deps+=("$name")
-                fi
-            fi
-        done
-    fi
-
-    # Sort and output
-    printf '%s\n' "${deps[@]}" | sort | tr '\n' ' ' | sed 's/ $//'
+    rl.question("\nChoice [1-2]: ", (answer) => {
+      rl.close();
+      const choice = answer.trim();
+      if (choice === "2" || choice.toLowerCase() === "project") {
+        resolve("project");
+      } else {
+        resolve("user");
+      }
+    });
+  });
 }
 
-# Find a hook file by name, checking XDG config first, then bundled
-function find_hook_file() {
-    local name="$1"
-    local xdg_config="${XDG_CONFIG_HOME:-$HOME/.config}"
+// ============================================================================
+// Profile scoping: app -> user -> project (more specific wins)
+// ============================================================================
 
-    # Check XDG config first (user override)
-    if [ -f "$xdg_config/claudeman/hooks/${name}.json" ]; then
-        echo "$xdg_config/claudeman/hooks/${name}.json"
-        return 0
-    fi
-
-    # Fall back to bundled
-    if [ -f "$LIB_DIR/hooks/${name}.json" ]; then
-        echo "$LIB_DIR/hooks/${name}.json"
-        return 0
-    fi
-
-    return 1
+function getProfileDirs() {
+  return [
+    { scope: "app", dir: APP_PROFILES_DIR },
+    { scope: "user", dir: USER_PROFILES_DIR },
+    { scope: "project", dir: PROJECT_PROFILES_DIR },
+  ];
 }
 
-# List available hooks (from bundled + XDG config)
-function list_available_hooks() {
-    local hooks=()
-    local xdg_config="${XDG_CONFIG_HOME:-$HOME/.config}"
+// Get all profiles with their scopes
+function getAllProfiles() {
+  const profiles = new Map(); // name -> { scopes: [], activeScope, profile }
 
-    # Bundled hooks
-    if [ -d "$LIB_DIR/hooks" ]; then
-        for json in "$LIB_DIR/hooks"/*.json; do
-            [ -f "$json" ] && hooks+=("$(basename "$json" .json)")
-        done
-    fi
+  for (const { scope, dir } of getProfileDirs()) {
+    if (!fs.existsSync(dir)) continue;
 
-    # XDG config hooks (may add new ones or override bundled)
-    if [ -d "$xdg_config/claudeman/hooks" ]; then
-        for json in "$xdg_config/claudeman/hooks"/*.json; do
-            if [ -f "$json" ]; then
-                local name=$(basename "$json" .json)
-                # Add if not already in list
-                if [[ ! " ${hooks[*]} " =~ " ${name} " ]]; then
-                    hooks+=("$name")
-                fi
-            fi
-        done
-    fi
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
+    for (const file of files) {
+      const name = file.replace(".json", "");
+      const profilePath = path.join(dir, file);
+      const profile = JSON.parse(fs.readFileSync(profilePath, "utf8"));
 
-    # Sort and output
-    printf '%s\n' "${hooks[@]}" | sort | tr '\n' ' ' | sed 's/ $//'
+      if (!profiles.has(name)) {
+        profiles.set(name, { scopes: [], activeScope: scope, profile });
+      }
+      profiles.get(name).scopes.push(scope);
+      // More specific scope overwrites (project > user > app)
+      profiles.get(name).activeScope = scope;
+      profiles.get(name).profile = profile;
+    }
+  }
+
+  return profiles;
 }
 
-# Generate image name:tag based on selected deps
-function get_image_name() {
-    local selected_deps="$1"
-    local tag=""
-
-    if [ -z "$selected_deps" ]; then
-        tag="latest"
-    elif [ "$selected_deps" = "all" ]; then
-        tag="all"
-    else
-        # Sort deps alphabetically and join with hyphens
-        tag=$(echo "$selected_deps" | tr ',' '\n' | sort | tr '\n' '-' | sed 's/-$//')
-    fi
-
-    # OCI spec: tag max 128 chars
-    if [ ${#tag} -gt 128 ]; then
-        tag="${tag:0:122}-TRUNC"
-    fi
-
-    echo "claudeman:$tag"
+// Load a profile by name (most specific scope wins)
+function loadProfile(name) {
+  const dirs = getProfileDirs().reverse(); // project -> user -> app
+  for (const { dir } of dirs) {
+    const profilePath = path.join(dir, `${name}.json`);
+    if (fs.existsSync(profilePath)) {
+      return JSON.parse(fs.readFileSync(profilePath, "utf8"));
+    }
+  }
+  return null;
 }
 
-function build_container() {
-    local selected_deps="$1"  # Comma-separated list, "all", or empty
-    local image_name=$(get_image_name "$selected_deps")
-
-    echo "Using timezone: $TIMEZONE"
-    echo "Image: $image_name"
-    TEMP_DIR=$(mktemp -d)
-
-    # Download upstream Dockerfile and init script
-    curl -s $CONTAINER_RAW_DIR/Dockerfile -o $TEMP_DIR/Dockerfile
-    curl -s $CONTAINER_RAW_DIR/init-firewall.sh -o $TEMP_DIR/init-firewall.sh
-
-    # Collect Containerfile fragments (.cf files)
-    local cf_files=()
-
-    # 1. Selected deps (from --deps argument)
-    if [ -n "$selected_deps" ]; then
-        if [ "$selected_deps" = "all" ]; then
-            # Include all available deps
-            for dep in $(list_available_deps); do
-                local cf_path=$(find_cf_file "$dep")
-                [ -n "$cf_path" ] && cf_files+=("$cf_path")
-            done
-        else
-            # Include specific deps
-            IFS=',' read -ra deps_array <<< "$selected_deps"
-            for dep in "${deps_array[@]}"; do
-                local cf_path=$(find_cf_file "$dep")
-                if [ -n "$cf_path" ]; then
-                    cf_files+=("$cf_path")
-                else
-                    echo "Warning: Dependency '$dep' not found"
-                fi
-            done
-        fi
-    fi
-
-    # 2. Project local deps (always included)
-    if [ -d ".claude/deps" ]; then
-        for cf in ".claude/deps"/*.cf; do
-            [ -f "$cf" ] && cf_files+=("$cf")
-        done
-    fi
-
-    # Append all .cf files to Dockerfile
-    if [ ${#cf_files[@]} -gt 0 ]; then
-        echo ""
-        echo "Appending Containerfile fragments:"
-        for cf in "${cf_files[@]}"; do
-            echo "  - $(basename "$cf")"
-            echo "" >> $TEMP_DIR/Dockerfile
-            echo "# --- $(basename "$cf") ---" >> $TEMP_DIR/Dockerfile
-            cat "$cf" >> $TEMP_DIR/Dockerfile
-        done
-
-        # Ensure we end as node user (not root)
-        echo "" >> $TEMP_DIR/Dockerfile
-        echo "# Ensure final user is node" >> $TEMP_DIR/Dockerfile
-        echo "USER node" >> $TEMP_DIR/Dockerfile
-    fi
-
-    podman build -t "$image_name" --build-arg TZ="$TIMEZONE" $TEMP_DIR
+// Get profile path for a specific scope
+function getProfilePath(name, scope) {
+  const dirMap = {
+    app: APP_PROFILES_DIR,
+    user: USER_PROFILES_DIR,
+    project: PROJECT_PROFILES_DIR,
+  };
+  return path.join(dirMap[scope], `${name}.json`);
 }
 
-# Function to run container with common options
-function run_container {
-    local image_name="$1"
-    local cmd="${2:-""}"  # Command to run (optional)
-
-    # Common environment variables
-    # Get terminal-specific ID for notifications based on TERM_PROGRAM
-    local term_id=""
-
-    case "${TERM_PROGRAM:-}" in
-        ghostty)
-            # Get terminal UUID (unique per tab/pane)
-            term_id=$(osascript -e 'tell application "Ghostty" to get id of focused terminal of selected tab of front window' 2>/dev/null | sed 's/terminal id //')
-            ;;
-        Apple_Terminal)
-            # Get window ID (unique per tab in Terminal.app)
-            term_id=$(osascript -e 'tell application "Terminal" to id of front window' 2>/dev/null)
-            ;;
-        iTerm.app)
-            # Get session unique ID
-            term_id=$(osascript -e 'tell application "iTerm2" to get unique id of current session of current window' 2>/dev/null)
-            ;;
-        *)
-            echo "Warning: Unsupported terminal '${TERM_PROGRAM:-unknown}'. Notifications may not focus correctly."
-            ;;
-    esac
-
-    local env_vars=(
-        "-e NODE_OPTIONS=--max-old-space-size=4096"
-        "-e CLAUDE_CONFIG_DIR=/home/node/.claude"
-        "-e POWERLEVEL9K_DISABLE_GITSTATUS=true"
-        "-e TERM_PROGRAM=${TERM_PROGRAM:-}"
-        "-e TERM_ID=$term_id"
-    )
-
-    # Common volume mounts
-    local volumes=(
-        "-v $(pwd)/.claude:/home/node/.claude"
-        "-v $(pwd)/.claude/.bash_history:/commandhistory/.bash_history"
-        "-v $(pwd):/workspace"
-    )
-
-    # Common local args
-    local args=(
-        "--cap-add=NET_ADMIN"
-        "--cap-add=NET_RAW"
-    )
-
-    # Build the command
-    podman run --rm -it ${env_vars[@]} ${volumes[@]} ${args[@]} "$image_name" ${cmd}
+// Ensure profile directory exists for scope
+function ensureProfileDir(scope) {
+  const dirMap = {
+    user: USER_PROFILES_DIR,
+    project: PROJECT_PROFILES_DIR,
+  };
+  const dir = dirMap[scope];
+  if (dir && !fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
 }
 
-function usage {
-    echo "Usage: claudeman [run|listen|deps|hooks|help] [options]"
-    echo ""
-    echo "Run from within a project directory"
-    echo ""
-    echo "Commands:"
-    echo "  run [options] [--] [cmd]   Run an interactive container"
-    echo "  listen [options]           Start the notification listener"
-    echo "  deps                       List available dependencies"
-    echo "  hooks                      List available hooks"
-    echo "  help                       Displays help"
-    echo ""
-    echo "Run Options:"
-    echo "  --deps=DEPS              Dependencies to install (comma-separated)"
-    echo "                           Examples: --deps=go  --deps=go,python  --deps=all"
-    echo "                           Default: none"
-    echo "  --hooks=HOOKS            Hooks to enable (comma-separated)"
-    echo "                           Examples: --hooks=prettier  --hooks=prettier,questions  --hooks=all"
-    echo "                           Default: none"
-    echo "  --                       Separator between options and command"
-    echo ""
-    echo "Listen Options:"
-    echo "  -p, --port <port>        Listener port (default: 8080)"
-    echo ""
-    echo "Examples:"
-    echo "  claudeman run                                  # Minimal (no deps, no hooks)"
-    echo "  claudeman run --deps=go --hooks=prettier       # Go + prettier hook"
-    echo "  claudeman run --hooks=prettier,q-notify       # Prettier + question notifications"
-    echo "  claudeman run --deps=all --hooks=all           # Everything"
-    echo "  claudeman run -- bash                          # Shell access"
-    echo "  claudeman listen                               # Start notification listener"
-    echo "  claudeman deps                                 # List available deps"
-    echo "  claudeman hooks                                # List available hooks"
-    echo ""
-    echo "Dependencies:"
-    echo "  Deps are Containerfile fragments (.cf files) installed at build time."
-    echo "  Available: $(list_available_deps)"
-    echo "  User overrides: ~/.config/claudeman/deps/*.cf"
-    echo "  Project deps:   .claude/deps/*.cf (always included)"
-    echo ""
-    echo "Hooks:"
-    echo "  Hooks are JSON files that configure Claude Code automation."
-    echo "  Available: $(list_available_hooks)"
-    echo "  User overrides: ~/.config/claudeman/hooks/*.json"
-    echo ""
+// ============================================================================
+// Feature commands
+// ============================================================================
+
+async function fetchFeatures() {
+  const response = await fetchUrl(FEATURE_INDEX_URL);
+  const data = JSON.parse(response);
+
+  const features = [];
+  for (const collection of data.collections || []) {
+    const maintainer = collection.sourceInformation?.name || "Unknown";
+    for (const feature of collection.features || []) {
+      if (feature.deprecated) continue;
+
+      features.push({
+        id: feature.id,
+        name: feature.name || feature.id.split("/").pop(),
+        description: feature.description || "",
+        version: feature.version,
+        majorVersion: feature.majorVersion || "1",
+        documentationURL: feature.documentationURL,
+        maintainer: maintainer,
+        options: feature.options || {},
+      });
+    }
+  }
+  return features;
 }
 
-# Get current timezone in IANA format (e.g. "America/New_York")
-TIMEZONE=$(readlink /etc/localtime | sed 's/.*zoneinfo\///')
+async function featureSearch(query, limit = 30) {
+  console.log("Fetching feature index...");
+  const features = await fetchFeatures();
+  const queryLower = query.toLowerCase();
 
-# Check if no arguments are provided
-if [ -z "${1:-}" ]; then
-  usage
-  exit 0
-fi
+  const matches = features.filter(
+    (f) =>
+      f.name.toLowerCase().includes(queryLower) ||
+      f.id.toLowerCase().includes(queryLower) ||
+      (f.description && f.description.toLowerCase().includes(queryLower)),
+  );
 
-command=$1
-shift
+  if (matches.length === 0) {
+    console.log(`No features found matching "${query}"`);
+    console.log("\nBrowse all: https://containers.dev/features");
+    return;
+  }
 
-case $command in
-    run)
-        echo "Running interactive container..."
+  console.log(`Found ${matches.length} feature(s) matching "${query}":\n`);
 
-        # Parse run flags (before --)
-        SELECTED_DEPS=""
-        SELECTED_HOOKS=""
+  const shown = matches.slice(0, limit);
+  const descWidth = 50;
+  const maxIdLen = Math.max(
+    ...shown.map((f) => `${f.id}:${f.majorVersion}`.length),
+  );
 
-        while [[ $# -gt 0 ]]; do
-            case $1 in
-                --deps=*)
-                    SELECTED_DEPS="${1#--deps=}"
-                    shift
-                    ;;
-                --hooks=*)
-                    SELECTED_HOOKS="${1#--hooks=}"
-                    shift
-                    ;;
-                --)
-                    shift
-                    break
-                    ;;
-                *)
-                    break
-                    ;;
-            esac
-        done
+  console.log(`  ${"ID".padEnd(maxIdLen)}\tDESCRIPTION`);
+  console.log(`  ${"-".repeat(maxIdLen)}\t${"-".repeat(descWidth)}`);
 
-        ensure_claude_dir
+  for (const f of shown) {
+    const fullId = `${f.id}:${f.majorVersion}`;
+    const desc = f.description
+      ? f.description.length > descWidth
+        ? f.description.substring(0, descWidth - 1) + "…"
+        : f.description
+      : "";
+    console.log(`  ${fullId.padEnd(maxIdLen)}\t${desc}`);
+  }
 
-        # Create claudeman directory structure
-        mkdir -p .claude/claudeman
+  if (matches.length > limit) {
+    console.log(
+      `\n  ... and ${matches.length - limit} more (use -n ${matches.length} to show all)`,
+    );
+  }
 
-        # Collect selected hook files
-        HOOK_FILES=""
-        if [ -n "$SELECTED_HOOKS" ]; then
-            if [ "$SELECTED_HOOKS" = "all" ]; then
-                # Include all available hooks
-                for hook in $(list_available_hooks); do
-                    hook_path=$(find_hook_file "$hook")
-                    [ -n "$hook_path" ] && HOOK_FILES="$HOOK_FILES $hook_path"
-                done
-            else
-                # Include specific hooks
-                IFS=',' read -ra hooks_array <<< "$SELECTED_HOOKS"
-                for hook in "${hooks_array[@]}"; do
-                    hook_path=$(find_hook_file "$hook")
-                    if [ -n "$hook_path" ]; then
-                        HOOK_FILES="$HOOK_FILES $hook_path"
-                    else
-                        echo "Warning: Hook '$hook' not found"
-                    fi
-                done
-            fi
-        fi
+  console.log(`\nFor details: claudeman feature info <id>`);
+}
 
-        # Validate hook dependencies
-        if [ -n "$HOOK_FILES" ]; then
-            # Build list of selected deps for comparison
-            if [ "$SELECTED_DEPS" = "all" ]; then
-                DEPS_LIST=$(list_available_deps | tr ' ' '\n')
-            else
-                DEPS_LIST=$(echo "$SELECTED_DEPS" | tr ',' '\n')
-            fi
+async function featureInfo(query) {
+  console.log("Fetching feature index...");
+  const features = await fetchFeatures();
+  const queryClean = query.replace(/:\d+$/, "");
+  const queryLower = queryClean.toLowerCase();
 
-            # Check each hook's required deps
-            for hook_path in $HOOK_FILES; do
-                REQUIRED=$(node -e "const h=require('$hook_path'); (h.deps||[]).forEach(d=>console.log(d))")
-                for req in $REQUIRED; do
-                    if ! echo "$DEPS_LIST" | grep -q "^${req}$"; then
-                        hook_name=$(basename "$hook_path" .json)
-                        echo "Error: Hook '$hook_name' requires dep '$req'"
-                        echo "  Add --deps=$req or remove --hooks=$hook_name"
-                        exit 1
-                    fi
-                done
-            done
-        fi
+  let matches = features.filter(
+    (f) => f.id.split("/").pop().toLowerCase() === queryLower,
+  );
+  if (matches.length === 0) {
+    matches = features.filter((f) => f.id.toLowerCase() === queryLower);
+  }
+  if (matches.length === 0) {
+    matches = features.filter((f) => f.id.toLowerCase().includes(queryLower));
+  }
+  if (matches.length === 0) {
+    matches = features.filter((f) => f.name.toLowerCase() === queryLower);
+  }
 
-        # Merge selected hooks into settings.json
-        if [ -n "$HOOK_FILES" ]; then
-            node "$LIB_DIR/merge-hooks.js" .claude/settings.json $HOOK_FILES
-        else
-            # No hooks selected - clear hooks from settings.json
-            node "$LIB_DIR/merge-hooks.js" .claude/settings.json
-        fi
+  if (matches.length === 0) {
+    console.log(`Feature not found: ${query}`);
+    console.log(`\nTry: claudeman feature search ${query}`);
+    return;
+  }
 
-        # Always copy claudeman files (get updates)
-        if [ -f "$LIB_DIR/notify.js" ]; then
-            cp "$LIB_DIR/notify.js" .claude/claudeman/notify.js
-        fi
+  if (matches.length > 1) {
+    console.log(`Multiple features match "${query}":\n`);
+    for (const f of matches) {
+      console.log(`  ${f.name}`);
+      console.log(`    ${f.id}:${f.majorVersion}`);
+      console.log(`    Maintainer: ${f.maintainer}\n`);
+    }
+    console.log("Be more specific, e.g.:");
+    console.log(`  claudeman feature info devcontainers/features/${query}`);
+    return;
+  }
 
-        if [ -f "$LIB_DIR/dedup.js" ]; then
-            cp "$LIB_DIR/dedup.js" .claude/claudeman/dedup.js
-            chmod +x .claude/claudeman/dedup.js
-        fi
+  const match = matches[0];
+  console.log(`\n${match.name}`);
+  console.log("=".repeat(match.name.length));
+  console.log();
 
-        if [ -f "$LIB_DIR/enforce-questions.sh" ]; then
-            cp "$LIB_DIR/enforce-questions.sh" .claude/claudeman/enforce-questions.sh
-            chmod +x .claude/claudeman/enforce-questions.sh
-        fi
+  if (match.description) {
+    console.log(match.description);
+    console.log();
+  }
 
-        # Build container and get image name
-        IMAGE_NAME=$(get_image_name "$SELECTED_DEPS")
-        build_container "$SELECTED_DEPS"
+  console.log(`ID:         ${match.id}:${match.majorVersion}`);
+  console.log(`Version:    ${match.version}`);
+  console.log(`Maintainer: ${match.maintainer}`);
 
-        [ $# -eq 0 ] && CMD="claude --dangerously-skip-permissions" || CMD="$@"
-        run_container "$IMAGE_NAME" "$CMD"
-        ;;
-    listen)
-        # Parse listen flags
-        PORT=8080
+  if (match.documentationURL) {
+    console.log(`Docs:       ${match.documentationURL}`);
+  }
 
-        while [[ $# -gt 0 ]]; do
-            case $1 in
-                -p|--port)
-                    PORT="$2"
-                    shift 2
-                    ;;
-                *)
-                    # Backward compatibility: positional port argument
-                    if [[ "$1" =~ ^[0-9]+$ ]]; then
-                        PORT="$1"
-                        shift
-                    else
-                        echo "Error: Unknown option '$1'"
-                        usage
-                        exit 1
-                    fi
-                    ;;
-            esac
-        done
+  const optionKeys = Object.keys(match.options || {});
+  if (optionKeys.length > 0) {
+    console.log(`\nOptions:`);
+    for (const key of optionKeys) {
+      const opt = match.options[key];
+      const defaultVal =
+        opt.default !== undefined ? ` (default: ${opt.default})` : "";
+      console.log(`  ${key}: ${opt.type}${defaultVal}`);
+      if (opt.description) {
+        console.log(`    ${opt.description}`);
+      }
+    }
+  }
 
-        if [ ! -f "$LIB_DIR/listener.js" ]; then
-            echo "Error: listener.js not found at $LIB_DIR/listener.js"
-            exit 1
-        fi
-        echo "Starting notification listener on port $PORT..."
-        echo "Press Ctrl+C to stop"
-        node "$LIB_DIR/listener.js" -p "$PORT"
-        ;;
-    deps)
-        echo "Available dependencies:"
-        echo ""
-        for dep in $(list_available_deps); do
-            cf_path=$(find_cf_file "$dep")
-            if [ -n "$cf_path" ]; then
-                # Extract first comment line as description
-                desc=$(grep -m1 '^#' "$cf_path" | sed 's/^# *//')
-                printf "  %-12s %s\n" "$dep" "$desc"
-            fi
-        done
-        echo ""
-        echo "Usage: claudeman run --deps=go,python"
-        echo "       claudeman run --deps=all"
-        ;;
-    hooks)
-        echo "Available hooks:"
-        echo ""
-        for hook in $(list_available_hooks); do
-            hook_path=$(find_hook_file "$hook")
-            if [ -n "$hook_path" ]; then
-                # Extract description from JSON
-                desc=$(node -e "console.log(require('$hook_path').description || '(no description)')")
-                printf "  %-12s %s\n" "$hook" "$desc"
-            fi
-        done
-        echo ""
-        echo "Usage: claudeman run --hooks=prettier,q-notify"
-        echo "       claudeman run --hooks=all"
-        ;;
-    help)
-        usage
-        ;;
-    *)
-        echo "Error: Unknown command '$command'"
-        usage
-        exit 1
-        ;;
-esac
+  console.log(`\nUsage in profile:`);
+  console.log(`  "${match.id}:${match.majorVersion}": {}`);
+}
+
+// ============================================================================
+// Profile commands
+// ============================================================================
+
+function profileList() {
+  const profiles = getAllProfiles();
+
+  if (profiles.size === 0) {
+    console.log("No profiles found.");
+    return;
+  }
+
+  console.log("Available profiles:\n");
+
+  const nameWidth = 15;
+  const scopeWidth = 25;
+
+  console.log(
+    `  ${"NAME".padEnd(nameWidth)}\t${"SCOPE".padEnd(scopeWidth)}\tDESCRIPTION`,
+  );
+  console.log(
+    `  ${"-".repeat(nameWidth)}\t${"-".repeat(scopeWidth)}\t${"-".repeat(40)}`,
+  );
+
+  for (const [name, { scopes, activeScope, profile }] of profiles) {
+    const scopeDisplay = scopes
+      .map((s) => (s === activeScope ? `${s} (active)` : s))
+      .join(", ");
+    const desc = profile.description || "";
+    console.log(
+      `  ${name.padEnd(nameWidth)}\t${scopeDisplay.padEnd(scopeWidth)}\t${desc}`,
+    );
+  }
+
+  console.log(`\nFor details: claudeman profile info <name>`);
+}
+
+function profileInfo(name) {
+  const profiles = getAllProfiles();
+  const data = profiles.get(name);
+
+  if (!data) {
+    console.log(`Profile not found: ${name}`);
+    console.log(`\nAvailable: ${[...profiles.keys()].join(", ")}`);
+    return;
+  }
+
+  const { scopes, activeScope, profile } = data;
+
+  console.log(`\n${profile.name || name}`);
+  console.log("=".repeat((profile.name || name).length));
+  console.log();
+
+  if (profile.description) {
+    console.log(profile.description);
+    console.log();
+  }
+
+  console.log(`Scopes:      ${scopes.join(", ")}`);
+  console.log(`Active:      ${activeScope}`);
+
+  const featureIds = Object.keys(profile.features || {});
+  if (featureIds.length > 0) {
+    console.log(`\nFeatures (${featureIds.length}):`);
+    for (const id of featureIds) {
+      console.log(`  ${id}`);
+    }
+  } else {
+    console.log(`\nFeatures: none`);
+  }
+}
+
+function profileCreate(name, scope, description = "") {
+  if (scope === "app") {
+    console.error("Cannot create profiles in app scope (read-only)");
+    process.exit(1);
+  }
+
+  const profilePath = getProfilePath(name, scope);
+  if (fs.existsSync(profilePath)) {
+    console.error(`Profile already exists: ${profilePath}`);
+    process.exit(1);
+  }
+
+  ensureProfileDir(scope);
+
+  const profile = {
+    name: name,
+    description: description,
+    features: {},
+  };
+
+  fs.writeFileSync(profilePath, JSON.stringify(profile, null, 2));
+  console.log(`Created profile: ${profilePath}`);
+}
+
+function featureAdd(featureId, profileName, scope) {
+  if (scope === "app") {
+    console.error("Cannot modify profiles in app scope (read-only)");
+    process.exit(1);
+  }
+
+  const profilePath = getProfilePath(profileName, scope);
+
+  // If profile doesn't exist at this scope, copy from higher scope or create new
+  let profile;
+  if (fs.existsSync(profilePath)) {
+    profile = JSON.parse(fs.readFileSync(profilePath, "utf8"));
+  } else {
+    // Try to copy from a higher scope
+    const existing = loadProfile(profileName);
+    if (existing) {
+      profile = JSON.parse(JSON.stringify(existing)); // deep copy
+      console.log(`Copying profile from higher scope to ${scope}...`);
+    } else {
+      // Create new profile
+      profile = {
+        name: profileName,
+        description: "",
+        features: {},
+      };
+      console.log(`Creating new profile in ${scope} scope...`);
+    }
+    ensureProfileDir(scope);
+  }
+
+  // Add feature
+  if (profile.features[featureId]) {
+    console.log(`Feature already in profile: ${featureId}`);
+    return;
+  }
+
+  profile.features[featureId] = {};
+  fs.writeFileSync(profilePath, JSON.stringify(profile, null, 2));
+  console.log(`Added ${featureId} to ${profileName} (${scope})`);
+}
+
+function featureRemove(featureId, profileName, scope) {
+  if (scope === "app") {
+    console.error("Cannot modify profiles in app scope (read-only)");
+    process.exit(1);
+  }
+
+  const profilePath = getProfilePath(profileName, scope);
+
+  if (!fs.existsSync(profilePath)) {
+    console.error(`Profile not found at ${scope} scope: ${profileName}`);
+    console.error(`\nTo modify, first copy to ${scope} scope:`);
+    console.error(
+      `  claudeman feature add <any-feature> ${profileName} --scope ${scope}`,
+    );
+    process.exit(1);
+  }
+
+  const profile = JSON.parse(fs.readFileSync(profilePath, "utf8"));
+
+  if (!profile.features[featureId]) {
+    console.log(`Feature not in profile: ${featureId}`);
+    return;
+  }
+
+  delete profile.features[featureId];
+  fs.writeFileSync(profilePath, JSON.stringify(profile, null, 2));
+  console.log(`Removed ${featureId} from ${profileName} (${scope})`);
+}
+
+// ============================================================================
+// Run command - fetch upstream, create temp dir, run devcontainer
+// ============================================================================
+
+function getTerminalId() {
+  const termProgram = process.env.TERM_PROGRAM || "";
+  try {
+    switch (termProgram) {
+      case "ghostty":
+        return execSync(
+          `osascript -e 'tell application "Ghostty" to get id of focused terminal of selected tab of front window'`,
+          { encoding: "utf8" },
+        )
+          .trim()
+          .replace("terminal id ", "");
+      case "Apple_Terminal":
+        return execSync(
+          `osascript -e 'tell application "Terminal" to id of front window'`,
+          { encoding: "utf8" },
+        ).trim();
+      case "iTerm.app":
+        return execSync(
+          `osascript -e 'tell application "iTerm2" to get unique id of current session of current window'`,
+          { encoding: "utf8" },
+        ).trim();
+      default:
+        return "";
+    }
+  } catch {
+    return "";
+  }
+}
+
+async function runDevcontainer(profileName, workspaceFolder) {
+  // Check for container runtime
+  if (!CONTAINER_RUNTIME) {
+    console.error("Error: No container runtime found.");
+    console.error("Please install podman or docker:");
+    console.error("  - Podman: https://podman.io/getting-started/installation");
+    console.error("  - Docker: https://docs.docker.com/get-docker/");
+    process.exit(1);
+  }
+
+  const profile = loadProfile(profileName);
+  if (!profile) {
+    console.error(`Profile not found: ${profileName}`);
+    const profiles = getAllProfiles();
+    console.error(`Available: ${[...profiles.keys()].join(", ")}`);
+    process.exit(1);
+  }
+
+  console.log(`Using profile: ${profile.name || profileName}`);
+  console.log(`Container runtime: ${CONTAINER_RUNTIME}`);
+  console.log(`Description: ${profile.description || "none"}\n`);
+
+  // Create temp directory for devcontainer config
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claudeman-"));
+  console.log(`Fetching upstream devcontainer config...`);
+
+  let containerId = null;
+
+  // Cleanup function
+  const cleanup = () => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    if (containerId && CONTAINER_RUNTIME) {
+      console.log("\nStopping container...");
+      try {
+        execSync(`${CONTAINER_RUNTIME} stop ${containerId}`, {
+          stdio: "ignore",
+        });
+        execSync(`${CONTAINER_RUNTIME} rm ${containerId}`, { stdio: "ignore" });
+      } catch {
+        // Container may already be stopped
+      }
+    }
+  };
+
+  // Handle signals
+  process.on("SIGINT", () => {
+    cleanup();
+    process.exit(130);
+  });
+  process.on("SIGTERM", () => {
+    cleanup();
+    process.exit(143);
+  });
+
+  try {
+    // Ensure .claude directory exists in workspace for project isolation
+    const claudeDir = path.join(workspaceFolder, ".claude");
+    if (!fs.existsSync(claudeDir)) {
+      fs.mkdirSync(claudeDir, { recursive: true });
+    }
+    // Ensure .bash_history exists (bind mount requires existing file)
+    const historyFile = path.join(claudeDir, ".bash_history");
+    if (!fs.existsSync(historyFile)) {
+      fs.writeFileSync(historyFile, "");
+    }
+
+    // Copy notify to .claude/claudeman/bin/ for use inside container
+    const claudemanBinDir = path.join(claudeDir, "claudeman", "bin");
+    if (!fs.existsSync(claudemanBinDir)) {
+      fs.mkdirSync(claudemanBinDir, { recursive: true });
+    }
+    const notifySrc = path.join(SCRIPT_DIR, "lib", "notify.js");
+    const notifyDst = path.join(claudemanBinDir, "notify");
+    fs.copyFileSync(notifySrc, notifyDst);
+    fs.chmodSync(notifyDst, 0o755);
+
+    // Fetch upstream devcontainer config files
+    const [dockerfile, firewall, upstreamConfigRaw] = await Promise.all([
+      fetchUrl(UPSTREAM_DOCKERFILE),
+      fetchUrl(UPSTREAM_FIREWALL),
+      fetchUrl(UPSTREAM_DEVCONTAINER_JSON),
+    ]);
+
+    fs.writeFileSync(path.join(tmpDir, "Dockerfile"), dockerfile);
+    fs.writeFileSync(path.join(tmpDir, "init-firewall.sh"), firewall);
+
+    // Parse upstream config and merge our changes
+    const upstreamConfig = JSON.parse(upstreamConfigRaw);
+
+    // Merge profile features into upstream config
+    const config = {
+      ...upstreamConfig,
+      // Override name with profile info
+      name: `Claude Code (${profile.name || profileName})`,
+      // Merge profile features with any upstream features
+      features: {
+        ...(upstreamConfig.features || {}),
+        ...(profile.features || {}),
+      },
+      // Override mounts: use bind mounts from PWD/.claude for project isolation
+      // (instead of upstream named volumes which aren't project-specific)
+      mounts: [
+        `source=${claudeDir},target=/home/node/.claude,type=bind`,
+        `source=${historyFile},target=/commandhistory/.bash_history,type=bind`,
+      ],
+      // Add claudeman bin to PATH for notify command
+      remoteEnv: {
+        ...(upstreamConfig.remoteEnv || {}),
+        PATH: "${containerEnv:PATH}:/home/node/.claude/claudeman/bin",
+      },
+    };
+
+    fs.writeFileSync(
+      path.join(tmpDir, "devcontainer.json"),
+      JSON.stringify(config, null, 2),
+    );
+
+    // Get terminal info for notifications
+    const termProgram = process.env.TERM_PROGRAM || "";
+    const termId = getTerminalId();
+
+    // Build devcontainer up args
+    const upArgs = [
+      "up",
+      "--docker-path",
+      CONTAINER_RUNTIME,
+      "--workspace-folder",
+      workspaceFolder,
+      "--override-config",
+      path.join(tmpDir, "devcontainer.json"),
+    ];
+
+    if (termProgram) upArgs.push("--remote-env", `TERM_PROGRAM=${termProgram}`);
+    if (termId) upArgs.push("--remote-env", `TERM_ID=${termId}`);
+
+    console.log("Starting devcontainer...\n");
+
+    // Run devcontainer up and capture output for container ID
+    const upResult = execSync(`devcontainer ${upArgs.join(" ")}`, {
+      cwd: workspaceFolder,
+      encoding: "utf8",
+      stdio: ["inherit", "pipe", "inherit"],
+    });
+
+    // Parse container ID from output (JSON format)
+    try {
+      const result = JSON.parse(upResult);
+      containerId = result.containerId;
+    } catch {
+      // Try to find container ID from devcontainer labels
+      try {
+        const labelFilter = `label=devcontainer.local_folder=${workspaceFolder}`;
+        containerId = execSync(
+          `${CONTAINER_RUNTIME} ps -q --filter "${labelFilter}"`,
+          { encoding: "utf8" },
+        ).trim();
+      } catch {
+        // Continue without container ID
+      }
+    }
+
+    console.log("\nContainer started. Launching Claude Code...\n");
+
+    // Run exec to attach to claude
+    const execArgs = [
+      "exec",
+      "--docker-path",
+      CONTAINER_RUNTIME,
+      "--workspace-folder",
+      workspaceFolder,
+      "claude",
+      "--dangerously-skip-permissions",
+    ];
+
+    const claudeProc = spawn("devcontainer", execArgs, {
+      stdio: "inherit",
+      cwd: workspaceFolder,
+    });
+
+    claudeProc.on("close", (code) => {
+      cleanup();
+      process.exit(code || 0);
+    });
+  } catch (err) {
+    cleanup();
+    throw err;
+  }
+}
+
+// ============================================================================
+// Help
+// ============================================================================
+
+function mainHelp() {
+  console.log(`claudeman - Run Claude Code in devcontainers with profiles
+
+Usage: claudeman <command> [options]
+
+Commands:
+  feature     Search and inspect devcontainer features
+  profile     Manage profiles (feature collections)
+  init        Set up notification hooks and CLAUDE.md in current project
+  run         Start Claude in a devcontainer (stops on exit)
+  listen      Start notification listener (run on host)
+  help        Show this help
+
+Run 'claudeman <command> -h' for command-specific help.
+`);
+}
+
+function featureHelp() {
+  console.log(`claudeman feature - Search, inspect, and manage features
+
+Usage: claudeman feature <subcommand> [options]
+
+Subcommands:
+  search <query> [-n N]              Search features by name/description
+  info <id>                          Show feature details and options
+  add <id> <profile> [--scope S]     Add feature to a profile
+  remove <id> <profile> [--scope S]  Remove feature from a profile
+
+Scope: user or project (app is read-only). Prompts if not specified.
+
+Examples:
+  claudeman feature search go
+  claudeman feature info ghcr.io/devcontainers/features/go:1
+  claudeman feature add ghcr.io/devcontainers/features/rust:1 myprofile
+  claudeman feature add ghcr.io/devcontainers/features/go:1 dev --scope project
+`);
+}
+
+function profileHelp() {
+  console.log(`claudeman profile - Manage profiles (feature collections)
+
+Usage: claudeman profile <subcommand> [options]
+
+Subcommands:
+  list                           List all profiles with scopes
+  info <name>                    Show profile details and features
+  create <name> [--scope S]      Create a new empty profile
+  delete <name> --scope S        Delete a profile (requires explicit scope)
+
+Scope: user or project (app is read-only). Prompts if not specified.
+
+Profile Scopes (more specific wins):
+  app      Built-in profiles (${APP_PROFILES_DIR})
+  user     User profiles (${USER_PROFILES_DIR})
+  project  Project profiles (${PROJECT_PROFILES_DIR})
+
+Examples:
+  claudeman profile list
+  claudeman profile info go
+  claudeman profile create myprofile --scope project
+`);
+}
+
+// ============================================================================
+// Main
+// ============================================================================
+
+async function main() {
+  const args = process.argv.slice(2);
+  const command = args[0];
+
+  if (
+    !command ||
+    command === "help" ||
+    command === "--help" ||
+    command === "-h"
+  ) {
+    mainHelp();
+    process.exit(0);
+  }
+
+  switch (command) {
+    case "feature": {
+      const subCmd = args[1];
+      if (!subCmd || subCmd === "-h" || subCmd === "--help") {
+        featureHelp();
+      } else if (subCmd === "search" && args[2]) {
+        let limit = 30;
+        let queryParts = [];
+        for (let i = 2; i < args.length; i++) {
+          if (args[i] === "-n" && args[i + 1]) {
+            limit = parseInt(args[i + 1], 10) || 30;
+            i++;
+          } else if (!args[i].startsWith("-")) {
+            queryParts.push(args[i]);
+          }
+        }
+        await featureSearch(queryParts.join(" "), limit);
+      } else if (subCmd === "info" && args[2]) {
+        await featureInfo(args.slice(2).join(" "));
+      } else if (subCmd === "add" && args[2] && args[3]) {
+        const featureId = args[2];
+        const profileName = args[3];
+        const scopeIdx = args.indexOf("--scope");
+        const scope =
+          scopeIdx !== -1 && args[scopeIdx + 1]
+            ? args[scopeIdx + 1]
+            : await promptScope();
+        featureAdd(featureId, profileName, scope);
+      } else if (subCmd === "remove" && args[2] && args[3]) {
+        const featureId = args[2];
+        const profileName = args[3];
+        const scopeIdx = args.indexOf("--scope");
+        const scope =
+          scopeIdx !== -1 && args[scopeIdx + 1]
+            ? args[scopeIdx + 1]
+            : await promptScope();
+        featureRemove(featureId, profileName, scope);
+      } else {
+        featureHelp();
+      }
+      break;
+    }
+
+    case "profile": {
+      const subCmd = args[1];
+      if (!subCmd || subCmd === "-h" || subCmd === "--help") {
+        profileHelp();
+      } else if (subCmd === "list") {
+        profileList();
+      } else if (subCmd === "info" && args[2]) {
+        profileInfo(args[2]);
+      } else if (subCmd === "create" && args[2]) {
+        const name = args[2];
+        const scopeIdx = args.indexOf("--scope");
+        const scope =
+          scopeIdx !== -1 && args[scopeIdx + 1]
+            ? args[scopeIdx + 1]
+            : await promptScope();
+        const descIdx = args.indexOf("--description");
+        const description =
+          descIdx !== -1 && args[descIdx + 1] ? args[descIdx + 1] : "";
+        profileCreate(name, scope, description);
+      } else if (subCmd === "delete" && args[2]) {
+        const name = args[2];
+        const scopeIdx = args.indexOf("--scope");
+        if (scopeIdx === -1 || !args[scopeIdx + 1]) {
+          console.error(
+            "--scope is required for delete (to prevent accidents)",
+          );
+          process.exit(1);
+        }
+        const scope = args[scopeIdx + 1];
+        if (scope === "app") {
+          console.error("Cannot delete profiles in app scope (read-only)");
+          process.exit(1);
+        }
+        const profilePath = getProfilePath(name, scope);
+        if (!fs.existsSync(profilePath)) {
+          console.error(`Profile not found: ${profilePath}`);
+          process.exit(1);
+        }
+        fs.unlinkSync(profilePath);
+        console.log(`Deleted: ${profilePath}`);
+      } else {
+        profileHelp();
+      }
+      break;
+    }
+
+    case "init": {
+      if (args.includes("-h") || args.includes("--help")) {
+        console.log(`claudeman init - Set up notifications for current project
+
+Usage: claudeman init [options]
+
+Sets up notification hooks and CLAUDE.md instructions in the current project's
+.claude directory. Run this before 'claudeman run' to enable notifications.
+
+Options:
+  --hooks          Only install notification hooks
+  --instructions   Only install CLAUDE.md instructions
+  (no flags)       Install both hooks and instructions
+
+Files created/updated:
+  .claude/settings.json   Hooks for Stop and Notification events
+  .claude/CLAUDE.md       Instructions for Claude to use notify command
+
+Examples:
+  claudeman init
+  claudeman init --hooks
+`);
+      } else {
+        const claudeDir = path.join(process.cwd(), ".claude");
+        if (!fs.existsSync(claudeDir)) {
+          fs.mkdirSync(claudeDir, { recursive: true });
+        }
+
+        const installHooks = !args.includes("--instructions");
+        const installInstructions = !args.includes("--hooks");
+
+        if (installHooks) {
+          const settingsPath = path.join(claudeDir, "settings.json");
+          const sampleHooks = JSON.parse(
+            fs.readFileSync(
+              path.join(SCRIPT_DIR, "samples", "hooks.json"),
+              "utf8",
+            ),
+          );
+
+          let settings = {};
+          if (fs.existsSync(settingsPath)) {
+            try {
+              settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+            } catch {
+              // Invalid JSON, start fresh
+            }
+          }
+
+          // Merge hooks (preserves existing, deduplicates)
+          const { mergeHooks } = require(
+            path.join(SCRIPT_DIR, "lib", "merge-hooks.js"),
+          );
+          const merged = mergeHooks(settings, sampleHooks);
+
+          fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2));
+          console.log(`Installed notification hooks: ${settingsPath}`);
+        }
+
+        if (installInstructions) {
+          const claudeMdPath = path.join(claudeDir, "CLAUDE.md");
+          const sampleMd = fs.readFileSync(
+            path.join(SCRIPT_DIR, "samples", "CLAUDE.md"),
+            "utf8",
+          );
+
+          if (fs.existsSync(claudeMdPath)) {
+            const existing = fs.readFileSync(claudeMdPath, "utf8");
+            if (!existing.includes("# Claudeman Notifications")) {
+              fs.appendFileSync(claudeMdPath, "\n\n" + sampleMd);
+              console.log(
+                `Appended notification instructions: ${claudeMdPath}`,
+              );
+            } else {
+              console.log(
+                `Notification instructions already present: ${claudeMdPath}`,
+              );
+            }
+          } else {
+            fs.writeFileSync(claudeMdPath, sampleMd);
+            console.log(`Created notification instructions: ${claudeMdPath}`);
+          }
+        }
+
+        console.log("\nSetup complete. Now run:");
+        console.log("  1. Start listener on host: claudeman listen");
+        console.log("  2. Run Claude in container: claudeman run");
+      }
+      break;
+    }
+
+    case "run": {
+      let profileName = "minimal";
+      let workspaceFolder = process.cwd();
+      for (const arg of args) {
+        if (arg.startsWith("--profile=")) {
+          profileName = arg.split("=")[1];
+        } else if (arg.startsWith("--workspace=")) {
+          workspaceFolder = arg.split("=")[1];
+        }
+      }
+      if (args.includes("-h") || args.includes("--help")) {
+        console.log(`claudeman run - Start devcontainer, run Claude, stop on exit
+
+Usage: claudeman run [options]
+
+Lifecycle:
+  1. Builds/starts devcontainer with profile features
+  2. Runs Claude Code inside the container
+  3. Stops and removes container on exit (Ctrl+C or claude exit)
+
+Options:
+  --profile=<name>      Profile to use (default: minimal)
+  --workspace=<path>    Workspace folder (default: current directory)
+
+Examples:
+  claudeman run --profile=go
+  claudeman run --profile=full --workspace=/path/to/project
+`);
+      } else {
+        await runDevcontainer(profileName, workspaceFolder);
+      }
+      break;
+    }
+
+    case "listen": {
+      if (args.includes("-h") || args.includes("--help")) {
+        console.log(`claudeman listen - Start notification listener on host
+
+Usage: claudeman listen [options]
+
+Receives notifications from Claude sessions running in containers and:
+  1. Announces via macOS "say" command
+  2. Shows a dialog with OK/Cancel
+  3. Focuses the originating terminal tab on OK
+
+Options:
+  -p, --port <port>     Listener port (default: 8080)
+
+The container sends notifications to host.containers.internal:8080.
+Set TERM_PROGRAM and TERM_ID in your shell profile for terminal focusing.
+
+Examples:
+  claudeman listen
+  claudeman listen -p 9000
+`);
+      } else {
+        // Parse port from args
+        let port = 8080;
+        for (let i = 1; i < args.length; i++) {
+          if (args[i] === "-p" || args[i] === "--port") {
+            port = parseInt(args[++i], 10);
+          }
+        }
+        // Run listener directly (it's a long-running process)
+        const listenerPath = path.join(SCRIPT_DIR, "lib", "listener.js");
+        const { spawn } = require("child_process");
+        const listener = spawn("node", [listenerPath, "-p", String(port)], {
+          stdio: "inherit",
+        });
+        listener.on("close", (code) => {
+          process.exit(code || 0);
+        });
+      }
+      break;
+    }
+
+    default:
+      console.error(`Unknown command: ${command}`);
+      mainHelp();
+      process.exit(1);
+  }
+}
+
+main().catch((err) => {
+  console.error(err.message);
+  process.exit(1);
+});

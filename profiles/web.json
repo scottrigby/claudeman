@@ -1,0 +1,9 @@
+{
+  "name": "web",
+  "description": "Web development with Playwright",
+  "features": {
+    "ghcr.io/schlich/devcontainer-features/playwright:0": {
+      "browsers": "chromium"
+    }
+  }
+}

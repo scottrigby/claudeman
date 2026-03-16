@@ -1,0 +1,9 @@
+{
+  "name": "go",
+  "description": "Go development with linters",
+  "features": {
+    "ghcr.io/devcontainers/features/go:1": {
+      "version": "latest"
+    }
+  }
+}

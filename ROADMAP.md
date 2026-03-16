@@ -4,50 +4,42 @@ Future enhancement ideas for claudeman. These are organized by category, not pri
 
 ---
 
-## Configuration System
-
-### Implemented
-
-- [x] `--no-completion-notify` (disable task completion notifications)
-- [x] `--no-question-enforce` (disable AskUserQuestion enforcement)
-- [x] `--no-go` (skip Go and Go tools installation)
-- [x] `--volume <0-100|auto>` (set notification volume, auto = don't adjust)
+## Migration
 
 ### Potential
 
-- [ ] Config file support (`~/.claudeman.json` or `.claudeman.json`)
-- [ ] Per-project configuration overrides
-- [ ] Custom tools installation via config
+- [ ] `claudeman migrate` command to automate v1 to v2 migration
+  - Remove v1 hooks from `.claude/settings.json`
+  - Convert `.cf` files to profile feature references (where possible)
+  - Clean up `~/.config/claudeman/deps/` and `hooks/` directories
 
 ---
 
 ## Notifications
 
-### Potential
+### Event Types
 
 - [ ] `error` event type (distinct audio for failures)
-- [ ] Customizable audio text/phrases
-- [ ] Custom sound file selection
+
+### Notification Preferences
+
+- [ ] Default notification sound selection (bell, chime, etc.)
+- [ ] Sound override per notification type (e.g., different sounds for "no user input needed" vs "waiting for response")
+- [ ] Voice selection (different TTS voices)
+- [ ] Configuration to enable bell and/or voice
 - [ ] Silent mode (visual notifications only)
-- [ ] Different completion audio (no user input needed vs waiting for response)
-
-### Not Planned
-
-- Webhook support (Slack, Discord, Telegram - claudeman focuses on desktop)
-- Email notifications (for long-running tasks)
 
 ---
 
-## Developer Experience
+## Profiles
 
-### Potential
+### Open Questions
 
-- [ ] User-provided custom tools via config or hook script
-- [ ] Language-specific tool presets (Python, Rust, etc.)
-- [ ] Linter/formatter configuration options
-- [ ] Friendly session names (adjective-noun pattern)
-- [ ] Session history/resume support
-- [ ] Multiple listener instances (different notification preferences)
+- [ ] Should profiles optionally contain hook definitions?
+  - Would allow profiles to bundle both features and Claude configuration
+  - Example: a "python-strict" profile with linting hooks
+- [ ] Should profiles support agent definitions?
+- [ ] Should profiles support skills definitions?
 
 ---
 
@@ -55,23 +47,12 @@ Future enhancement ideas for claudeman. These are organized by category, not pri
 
 ### Implemented
 
-- [x] macOS (full support)
+- [x] macOS (full support with audio notifications)
 
 ### Potential
 
-- [ ] Linux desktop notifications (via notify-send)
+- [ ] Linux desktop notifications (via notify-send or similar)
 - [ ] Windows support (via PowerShell notifications)
-- [ ] Headless/CI mode (no notifications, just containerized execution)
-
----
-
-## Documentation
-
-### Potential
-
-- [ ] Video walkthrough of setup and usage
-- [ ] Contributing guide
-- [ ] Troubleshooting FAQ expansion
 
 ---
 
@@ -79,10 +60,8 @@ Future enhancement ideas for claudeman. These are organized by category, not pri
 
 These were considered but decided against:
 
-- State machine analysis (too complex; hook-based approach is simpler)
-- Transcript analysis in Stop hook (timing limitation makes this unreliable)
-- Circuit breaker/retry for notifications (TCP is simple enough)
-- Review complete detection (not needed for current automation focus)
+- Webhook support (Slack, Discord, Telegram - claudeman focuses on desktop)
+- Email notifications (for long-running tasks)
 
 ---
 
