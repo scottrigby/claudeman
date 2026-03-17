@@ -651,9 +651,30 @@ async function runDevcontainer(profileName, workspaceFolder) {
       fetchUrl(UPSTREAM_DEVCONTAINER_JSON),
     ]);
 
+    // Patch firewall script to allow host.containers.internal (for notifications)
+    // The upstream script calculates HOST_NETWORK from the default gateway's /24 subnet,
+    // but host.containers.internal often resolves to an IP outside that range.
+    // Example: gateway 10.88.0.1 → allows 10.88.0.0/24, but host.containers.internal
+    // resolves to 192.168.127.254, causing EHOSTUNREACH when notifications try to connect.
+    const patchedFirewall = firewall.replace(
+      /# Set up remaining iptables rules\n/,
+      `# Allow traffic to host.containers.internal for notifications
+HOST_CONTAINERS_INTERNAL_IP=$(getent hosts host.containers.internal 2>/dev/null | awk '{print $1}')
+if [ -n "$HOST_CONTAINERS_INTERNAL_IP" ]; then
+    echo "Allowing traffic to host.containers.internal ($HOST_CONTAINERS_INTERNAL_IP)"
+    iptables -A OUTPUT -d "$HOST_CONTAINERS_INTERNAL_IP" -j ACCEPT
+fi
+
+# Set up remaining iptables rules
+`,
+    );
+
     // Write devcontainer config files to temp directory
     fs.writeFileSync(path.join(devcontainerDir, "Dockerfile"), dockerfile);
-    fs.writeFileSync(path.join(devcontainerDir, "init-firewall.sh"), firewall);
+    fs.writeFileSync(
+      path.join(devcontainerDir, "init-firewall.sh"),
+      patchedFirewall,
+    );
 
     // Get terminal info for notifications (before config generation)
     const termProgram = process.env.TERM_PROGRAM || "";
