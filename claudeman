@@ -579,15 +579,13 @@ async function runDevcontainer(profileName, workspaceFolder) {
   console.log(`Container runtime: ${CONTAINER_RUNTIME}`);
   console.log(`Description: ${profile.description || "none"}\n`);
 
-  // Create temp directory for devcontainer config
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claudeman-"));
   console.log(`Fetching upstream devcontainer config...`);
 
   let containerId = null;
+  let devcontainerDir = null;
 
   // Cleanup function
   const cleanup = () => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
     if (containerId && CONTAINER_RUNTIME) {
       console.log("\nStopping container...");
       try {
@@ -597,6 +595,14 @@ async function runDevcontainer(profileName, workspaceFolder) {
         execSync(`${CONTAINER_RUNTIME} rm ${containerId}`, { stdio: "ignore" });
       } catch {
         // Container may already be stopped
+      }
+    }
+    // Clean up temp devcontainer directory
+    if (devcontainerDir && fs.existsSync(devcontainerDir)) {
+      try {
+        fs.rmSync(devcontainerDir, { recursive: true, force: true });
+      } catch {
+        // Temp dir may already be cleaned up
       }
     }
   };
@@ -633,6 +639,11 @@ async function runDevcontainer(profileName, workspaceFolder) {
     fs.copyFileSync(notifySrc, notifyDst);
     fs.chmodSync(notifyDst, 0o755);
 
+    // Create temp directory for devcontainer config (using --config flag)
+    devcontainerDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "claudeman-devcontainer-"),
+    );
+
     // Fetch upstream devcontainer config files
     const [dockerfile, firewall, upstreamConfigRaw] = await Promise.all([
       fetchUrl(UPSTREAM_DOCKERFILE),
@@ -640,8 +651,19 @@ async function runDevcontainer(profileName, workspaceFolder) {
       fetchUrl(UPSTREAM_DEVCONTAINER_JSON),
     ]);
 
-    fs.writeFileSync(path.join(tmpDir, "Dockerfile"), dockerfile);
-    fs.writeFileSync(path.join(tmpDir, "init-firewall.sh"), firewall);
+    // Write devcontainer config files to temp directory
+    fs.writeFileSync(path.join(devcontainerDir, "Dockerfile"), dockerfile);
+    fs.writeFileSync(path.join(devcontainerDir, "init-firewall.sh"), firewall);
+
+    // Get terminal info for notifications (before config generation)
+    const termProgram = process.env.TERM_PROGRAM || "";
+    const termId = getTerminalId();
+
+    if (termProgram) {
+      console.log(
+        `Terminal detected: ${termProgram} (ID: ${termId || "none"})`,
+      );
+    }
 
     // Parse upstream config and merge our changes
     const upstreamConfig = JSON.parse(upstreamConfigRaw);
@@ -662,35 +684,30 @@ async function runDevcontainer(profileName, workspaceFolder) {
         `source=${claudeDir},target=/home/node/.claude,type=bind`,
         `source=${historyFile},target=/commandhistory/.bash_history,type=bind`,
       ],
-      // Add claudeman bin to PATH for notify command
+      // Add claudeman bin to PATH and set terminal info for notifications
       remoteEnv: {
         ...(upstreamConfig.remoteEnv || {}),
         PATH: "${containerEnv:PATH}:/home/node/.claude/claudeman/bin",
+        ...(termProgram && { TERM_PROGRAM: termProgram }),
+        ...(termId && { TERM_ID: termId }),
       },
     };
 
-    fs.writeFileSync(
-      path.join(tmpDir, "devcontainer.json"),
-      JSON.stringify(config, null, 2),
-    );
+    const configPath = path.join(devcontainerDir, "devcontainer.json");
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    console.log(`Wrote devcontainer config to: ${configPath}`);
 
-    // Get terminal info for notifications
-    const termProgram = process.env.TERM_PROGRAM || "";
-    const termId = getTerminalId();
-
-    // Build devcontainer up args
+    // Build devcontainer up args (use --config to point to temp directory)
+    // Note: TERM_PROGRAM and TERM_ID are set in remoteEnv in the config, not via flags
     const upArgs = [
       "up",
       "--docker-path",
       CONTAINER_RUNTIME,
       "--workspace-folder",
       workspaceFolder,
-      "--override-config",
-      path.join(tmpDir, "devcontainer.json"),
+      "--config",
+      path.join(devcontainerDir, "devcontainer.json"),
     ];
-
-    if (termProgram) upArgs.push("--remote-env", `TERM_PROGRAM=${termProgram}`);
-    if (termId) upArgs.push("--remote-env", `TERM_ID=${termId}`);
 
     console.log("Starting devcontainer...\n");
 
@@ -720,13 +737,15 @@ async function runDevcontainer(profileName, workspaceFolder) {
 
     console.log("\nContainer started. Launching Claude Code...\n");
 
-    // Run exec to attach to claude
+    // Run exec to attach to claude (also needs --config flag)
     const execArgs = [
       "exec",
       "--docker-path",
       CONTAINER_RUNTIME,
       "--workspace-folder",
       workspaceFolder,
+      "--config",
+      path.join(devcontainerDir, "devcontainer.json"),
       "claude",
       "--dangerously-skip-permissions",
     ];
