@@ -909,7 +909,11 @@ function getTerminalId() {
   }
 }
 
-async function runDevcontainer(profileName, workspaceFolder) {
+async function runDevcontainer(
+  profileName,
+  workspaceFolder,
+  claudeExtraArgs = [],
+) {
   // Check for container runtime
   if (!CONTAINER_RUNTIME) {
     console.error("Error: No container runtime found.");
@@ -1121,6 +1125,7 @@ fi
       path.join(devcontainerDir, "devcontainer.json"),
       "claude",
       "--dangerously-skip-permissions",
+      ...claudeExtraArgs,
     ];
 
     const claudeProc = spawn(DEVCONTAINER_CLI, execArgs, {
@@ -1404,17 +1409,20 @@ Examples:
     case "run": {
       let profileName = "minimal";
       let workspaceFolder = process.cwd();
-      for (const arg of args) {
+      const ddIdx = args.indexOf("--");
+      const claudeExtraArgs = ddIdx !== -1 ? args.slice(ddIdx + 1) : [];
+      const runArgs = ddIdx !== -1 ? args.slice(0, ddIdx) : args;
+      for (const arg of runArgs) {
         if (arg.startsWith("--profile=")) {
           profileName = arg.split("=")[1];
         } else if (arg.startsWith("--workspace=")) {
           workspaceFolder = arg.split("=")[1];
         }
       }
-      if (args.includes("-h") || args.includes("--help")) {
+      if (runArgs.includes("-h") || runArgs.includes("--help")) {
         console.log(`claudeman run - Start devcontainer, run Claude, stop on exit
 
-Usage: claudeman run [options]
+Usage: claudeman run [options] [-- <claude-flags>]
 
 Lifecycle:
   1. Builds/starts devcontainer with profile features
@@ -1425,12 +1433,15 @@ Options:
   --profile=<name>      Profile to use (default: minimal)
   --workspace=<path>    Workspace folder (default: current directory)
 
+  --                    Pass remaining flags directly to the claude command
+
 Examples:
   claudeman run --profile=go
   claudeman run --profile=full --workspace=/path/to/project
+  claudeman run -- --plugin-dir /home/node/.claude/claudeman/plugins/ask-questions
 `);
       } else {
-        await runDevcontainer(profileName, workspaceFolder);
+        await runDevcontainer(profileName, workspaceFolder, claudeExtraArgs);
       }
       break;
     }
