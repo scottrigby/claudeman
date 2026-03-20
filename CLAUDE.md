@@ -1,5 +1,12 @@
 # Claudeman Development
 
+## Documentation Files
+
+- **README.md** — user-facing install, usage, and migration reference
+- **ARCHITECTURE.md** — design decisions, data flows, and "why" explanations for non-obvious choices
+- **ROADMAP.md** — future enhancement ideas organized by category; uses `- [ ]` checkboxes for actionable items
+- **CLAUDE.md** (this file) — dev workflow instructions for Claude sessions (testing, git policy)
+
 ## Testing
 
 Run the test suite:

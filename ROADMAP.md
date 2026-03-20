@@ -10,14 +10,15 @@ Future enhancement ideas for claudeman. These are organized by category, not pri
 
 ### Remaining / Future
 
-#### Startup Check
-
-On every `claudeman run`, if v1 artifacts are detected — hook commands in
-`settings.json` with v1 signatures, `.cf` files in `.claude/claudeman/deps/` or
-`~/.config/claudeman/deps/`, or hook config JSON files in
-`.claude/claudeman/hooks/` or `~/.config/claudeman/hooks/` — print a one-time
-warning and suggest running `claudeman migrate`. Suppress with
-`--ignore-v1-artifacts` (or persist suppression in user config).
+- [ ] **Startup Check** — On every `claudeman run`, if v1 artifacts are detected
+      (hook commands in `settings.json`, `.cf` files in `.claude/claudeman/deps/`
+      or `~/.config/claudeman/deps/`, hook config JSON files in
+      `.claude/claudeman/hooks/` or `~/.config/claudeman/hooks/`) — print a
+      one-time warning and suggest running `claudeman migrate`. Suppress with
+      `--ignore-v1-artifacts` (or persist suppression in user config).
+- [ ] **whitespace-tools feature** — Publish `ghcr.io/scottrigby/features/whitespace-tools`
+      from the `scottrigby/whitespace-tools` repo (see that repo's README for
+      publishing steps), then add it to the `full` profile.
 
 ---
 
