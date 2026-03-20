@@ -182,6 +182,12 @@ convertible (has a `migrate/v1/hooks.json` rule) vs no-v2-equivalent. `convert-v
 maps app-defined `.cf` files to v2 profiles via `migrate/v1/deps.json`; custom `.cf`
 files get a preview and a `claudeman feature search` suggestion.
 
+**Plugin installs from inside the container** must use the `url` source type with an explicit HTTPS URL in `marketplace.json`, not the `github` source type. The `github` type defaults to SSH (`git@github.com:...`), which fails because no GitHub SSH key is present in the container. The `url` type clones over HTTPS and requires no credentials for public repositories:
+
+```json
+{ "source": "url", "url": "https://github.com/owner/repo" }
+```
+
 ### Why
 
 **Why verbatim matching, not pattern/signature detection?**

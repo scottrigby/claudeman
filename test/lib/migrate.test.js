@@ -27,6 +27,7 @@ import {
   appDefinedCommandSet,
   classifyHookEntries,
   loadConversions,
+  loadPluginReplacements,
   loadV1DepContents,
   isAppDefinedDep,
 } from "../../lib/migrate.js";
@@ -593,6 +594,35 @@ describe("loadConversions", () => {
     const sets = loadV1HookCommandSets(MIGRATE_V1_HOOKS_DIR);
     const prettierCmd = [...sets.get("prettier")][0];
     expect(toV2(prettierCmd)).toBeNull();
+  });
+});
+
+// ============================================================================
+// loadPluginReplacements
+// ============================================================================
+
+describe("loadPluginReplacements", () => {
+  it("returns a Map", () => {
+    const replacements = loadPluginReplacements(MIGRATE_V1_HOOKS_JSON);
+    expect(replacements).toBeInstanceOf(Map);
+  });
+
+  it("maps q-enforce to claude-ask-questions plugin info", () => {
+    const replacements = loadPluginReplacements(MIGRATE_V1_HOOKS_JSON);
+    expect(replacements.has("q-enforce")).toBe(true);
+    const plugin = replacements.get("q-enforce");
+    expect(plugin.name).toBe("claude-ask-questions");
+    expect(typeof plugin.marketplace).toBe("string");
+    expect(typeof plugin.description).toBe("string");
+  });
+
+  it("returns empty Map when pluginReplacements section is absent", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "claudeman-test-"));
+    const p = join(tmp, "hooks.json");
+    writeFileSync(p, JSON.stringify({ conversions: [] }));
+    const replacements = loadPluginReplacements(p);
+    expect(replacements.size).toBe(0);
+    rmSync(tmp, { recursive: true });
   });
 });
 

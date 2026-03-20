@@ -1,6 +1,13 @@
 {
   "description": "V1 hook command signatures and their v2 equivalents",
   "signatures": ["claudeman/dedup.js", "claudeman/notify.js"],
+  "pluginReplacements": {
+    "q-enforce": {
+      "name": "claude-ask-questions",
+      "marketplace": "scottrigby/claude-ask-questions",
+      "description": "Enforce AskUserQuestion tool usage"
+    }
+  },
   "conversions": [
     {
       "match": "claudeman/notify.js.*-t\\s+question",

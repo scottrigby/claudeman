@@ -37,6 +37,14 @@ function qNotifyOnlySettings() {
   return { hooks: qNotifyFixture.hooks };
 }
 
+// Settings with q-enforce hook only (appNoV2 with plugin replacement)
+function qEnforceOnlySettings() {
+  const qEnforceFixture = JSON.parse(
+    readFileSync(join(V1_HOOKS_DIR, "q-enforce.json"), "utf8"),
+  );
+  return { hooks: qEnforceFixture.hooks };
+}
+
 async function run(args, { cwd, xdgConfig, input } = {}) {
   return execa("node", [CLI, "migrate", ...args], {
     cwd,
@@ -257,6 +265,23 @@ describe("migrate CLI — convert-v1-hooks", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Skipped");
     expect(readFileSync(settingsPath, "utf8")).toBe(original);
+  });
+
+  it("shows plugin replacement info and prints manual instructions when declined", async () => {
+    writeFileSync(
+      settingsPath,
+      JSON.stringify(qEnforceOnlySettings(), null, 2),
+    );
+    const result = await run(["convert-v1-hooks", "--scope=project"], {
+      cwd: tmpDir,
+      xdgConfig,
+      input: "n\n",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("claude-ask-questions");
+    expect(result.stdout).toContain("claude plugin marketplace add");
+    expect(result.stdout).toContain("claude plugin install");
+    expect(result.stdout).toContain("Migration section of claudeman README");
   });
 });
 
