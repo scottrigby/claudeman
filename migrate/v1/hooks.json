@@ -1,0 +1,26 @@
+{
+  "description": "V1 hook command signatures and their v2 equivalents",
+  "signatures": ["claudeman/dedup.js", "claudeman/notify.js"],
+  "conversions": [
+    {
+      "match": "claudeman/notify.js.*-t\\s+question",
+      "replace": "notify question \"Question ready\""
+    },
+    {
+      "match": "claudeman/notify.js.*-t\\s+complete",
+      "replace": "notify complete \"Task complete\""
+    },
+    {
+      "match": "claudeman/notify.js.*-t\\s+idle",
+      "replace": "notify idle \"Waiting for input\""
+    },
+    {
+      "match": "claudeman/dedup.js.*notify.js.*-t\\s+question",
+      "replace": "notify question \"Question ready\""
+    },
+    {
+      "match": "claudeman/dedup.js.*notify.js.*-t\\s+complete",
+      "replace": "notify complete \"Task complete\""
+    }
+  ]
+}

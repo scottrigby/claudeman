@@ -1,0 +1,22 @@
+# Go toolchain and development tools
+# Installs: Go 1.24.3, golangci-lint, goimports
+
+ARG TARGETARCH
+
+# Switch to root for system-level install
+USER root
+
+# Install Go
+RUN curl -fsSL "https://go.dev/dl/go1.24.3.linux-${TARGETARCH}.tar.gz" -o /tmp/go.tgz \
+    && tar -C /usr/local -xzf /tmp/go.tgz \
+    && rm /tmp/go.tgz
+
+ENV PATH="/usr/local/go/bin:/home/node/go/bin:${PATH}"
+ENV GOPATH="/home/node/go"
+
+# Switch back to node for user-level installs
+USER node
+
+# Install Go tools (as node user, installs to $GOPATH)
+RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.0 \
+    && go install golang.org/x/tools/cmd/goimports@latest

@@ -1,0 +1,16 @@
+# Whitespace tools (newline, trailingspace)
+# Install whitespace-tools from pre-built binaries
+
+ARG TARGETARCH
+
+# Ensure bin directory exists
+RUN mkdir -p /home/node/go/bin
+
+# Install whitespace-tools
+RUN curl -fsSL "https://github.com/scottrigby/whitespace-tools/releases/download/v1.0.1/whitespace-tools_1.0.1_linux_${TARGETARCH}.tar.gz" -o /tmp/ws.tgz \
+    && tar -C /tmp -xzf /tmp/ws.tgz \
+    && mv /tmp/newline /tmp/trailingspace /home/node/go/bin/ \
+    && chmod +x /home/node/go/bin/newline /home/node/go/bin/trailingspace \
+    && rm /tmp/ws.tgz
+
+ENV PATH="/home/node/go/bin:${PATH}"

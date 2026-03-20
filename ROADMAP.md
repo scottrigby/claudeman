@@ -6,12 +6,36 @@ Future enhancement ideas for claudeman. These are organized by category, not pri
 
 ## Migration
 
-### Potential
+`claudeman migrate` is implemented. See [ARCHITECTURE.md](ARCHITECTURE.md#migration) for design and command reference.
 
-- [ ] `claudeman migrate` command to automate v1 to v2 migration
-  - Remove v1 hooks from `.claude/settings.json`
-  - Convert `.cf` files to profile feature references (where possible)
-  - Clean up `~/.config/claudeman/deps/` and `hooks/` directories
+### Remaining / Future
+
+#### Startup Check
+
+On every `claudeman run`, if v1 artifacts are detected — hook commands in
+`settings.json` with v1 signatures, `.cf` files in `.claude/claudeman/deps/` or
+`~/.config/claudeman/deps/`, or hook config JSON files in
+`.claude/claudeman/hooks/` or `~/.config/claudeman/hooks/` — print a one-time
+warning and suggest running `claudeman migrate`. Suppress with
+`--ignore-v1-artifacts` (or persist suppression in user config).
+
+---
+
+## Init / Cleanup
+
+### `init` (refactor)
+
+- [ ] Refactor `claudeman init` to use the `merge-hooks` library (from
+      `migrate/v1/merge-hooks.js`) instead of any ad-hoc hook writing logic —
+      ensures init and migrate use identical merge/dedup semantics
+
+### `cleanup` (new command)
+
+- [ ] `claudeman cleanup` — inverse of `claudeman init`; removes hooks that
+      init wrote from `.claude/settings.json` using the same merge-hooks library
+      (re-merge with the v1 hooks omitted, preserving any user-added hooks)
+- [ ] Optionally accept `--hooks=TYPE,...|all` to remove a subset
+- [ ] Prompt y/N before writing (skip with `-y`)
 
 ---
 

@@ -95,6 +95,8 @@ claudeman profile delete myprof    # Delete profile
 | web     | Web development  | playwright                   |
 | full    | Everything       | go, python, rust, playwright |
 
+> **Note on whitespace tools:** v1 included `whitespace-tools` (trailing space and EOF newline enforcement). These are not included in any v2 profile — current Claude models handle whitespace reliably without them.
+
 ### Features
 
 Search and manage devcontainer features:
@@ -210,13 +212,21 @@ For detailed information about how claudeman works, including the notification s
 
 2. **Convert custom `.cf` files to devcontainer features**: If you had custom Containerfile fragments, create devcontainer features instead. See [devcontainers/feature-starter](https://github.com/devcontainers/feature-starter) for creating custom features.
 
-3. **Remove v1 hooks from projects**: If v1 added hooks to `.claude/settings.json`, remove them manually. v2's `claudeman init` only manages notification-related hooks.
-
-4. **Delete unused config directories**:
+3. **Migrate v1 hooks and deps**: Use the new migrate command to automate cleanup:
 
    ```bash
-   rm -rf ~/.config/claudeman/deps
-   rm -rf ~/.config/claudeman/hooks
+   claudeman migrate remove-v1-hooks   # Remove old hooks (prevents duplicate notifications)
+   claudeman migrate convert-v1-hooks  # Or replace with v2 equivalents instead
+   claudeman migrate remove-v1-deps    # Delete old .cf dep files
+   claudeman migrate convert-v1-deps   # Map .cf deps to v2 profiles
+   ```
+
+   Run `claudeman migrate --help` for filtering flags (`--scope`, `--hooks`, `--deps`, `-y`).
+
+4. **Remove v1 scripts from the project-scope claudeman directory** (`.claude/claudeman/` is also used by v2 for project-scope profiles, so remove only the v1 scripts — not the whole directory):
+
+   ```bash
+   rm -f .claude/claudeman/notify.js .claude/claudeman/dedup.js .claude/claudeman/enforce-questions.sh
    ```
 
 5. **Set up notifications**: Run `claudeman init` in your project to configure notification hooks.

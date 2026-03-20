@@ -1,0 +1,50 @@
+{
+  "description": "V1 dep names to v2 profile/feature mappings",
+  "deps": {
+    "go": {
+      "profile": "go",
+      "note": "Use the bundled 'go' profile"
+    },
+    "playwright": {
+      "profile": "web",
+      "note": "Use the bundled 'web' profile"
+    },
+    "python": {
+      "createProfile": {
+        "name": "python",
+        "description": "Python development",
+        "features": {
+          "ghcr.io/devcontainers/features/python:1": { "version": "latest" }
+        }
+      },
+      "note": "Creates a new 'python' profile"
+    },
+    "rust": {
+      "createProfile": {
+        "name": "rust",
+        "description": "Rust development",
+        "features": {
+          "ghcr.io/devcontainers/features/rust:1": {
+            "installRustfmt": true,
+            "installClippy": true
+          }
+        }
+      },
+      "note": "Creates a new 'rust' profile"
+    },
+    "whitespace-tools": {
+      "obsolete": true,
+      "note": "Claude no longer needs help with trailing whitespace and EOF newlines. These tools were added when Claude 3.x frequently made whitespace mistakes, but current models handle this reliably. Skip this dep."
+    }
+  },
+  "combinations": {
+    "go+playwright": {
+      "profile": "web",
+      "note": "Use 'web' profile and add go feature, or use 'full'"
+    },
+    "go+python+rust+playwright": {
+      "profile": "full",
+      "note": "Use the bundled 'full' profile"
+    }
+  }
+}
