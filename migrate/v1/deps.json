@@ -34,7 +34,7 @@
     },
     "whitespace-tools": {
       "obsolete": true,
-      "note": "Claude no longer needs help with trailing whitespace and EOF newlines. These tools were added when Claude 3.x frequently made whitespace mistakes, but current models handle this reliably. Skip this dep."
+      "note": "claudeman v2 no longer uses whitespace-tools. If you want these tools for other purposes, install the devcontainer feature: claudeman feature add ghcr.io/scottrigby/whitespace-tools/whitespace-tools:1 <profile>"
     }
   },
   "combinations": {

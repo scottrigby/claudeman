@@ -16,9 +16,6 @@ Future enhancement ideas for claudeman. These are organized by category, not pri
       `.claude/claudeman/hooks/` or `~/.config/claudeman/hooks/`) — print a
       one-time warning and suggest running `claudeman migrate`. Suppress with
       `--ignore-v1-artifacts` (or persist suppression in user config).
-- [ ] **whitespace-tools feature** — Publish `ghcr.io/scottrigby/features/whitespace-tools`
-      from the `scottrigby/whitespace-tools` repo (see that repo's README for
-      publishing steps), then add it to the `full` profile.
 
 ---
 

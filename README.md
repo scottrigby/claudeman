@@ -95,7 +95,7 @@ claudeman profile delete myprof    # Delete profile
 | web     | Web development  | playwright                   |
 | full    | Everything       | go, python, rust, playwright |
 
-> **Note on whitespace tools:** v1 included `whitespace-tools` (trailing space and EOF newline enforcement). These are not included in any v2 profile — current Claude models handle whitespace reliably without them.
+> **Note on whitespace tools:** v1 included `whitespace-tools` (trailing space and EOF newline enforcement). claudeman v2 does not use them — current Claude models handle whitespace reliably. If you want them for other purposes, they are available as a standalone devcontainer feature: `claudeman feature add ghcr.io/scottrigby/whitespace-tools/whitespace-tools:1 <profile>`
 
 ### Features
 
