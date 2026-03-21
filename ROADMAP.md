@@ -16,6 +16,17 @@ Future enhancement ideas for claudeman. These are organized by category, not pri
       `.claude/claudeman/hooks/` or `~/.config/claudeman/hooks/`) — print a
       one-time warning and suggest running `claudeman migrate`. Suppress with
       `--ignore-v1-artifacts` (or persist suppression in user config).
+- [ ] **Split CLI into command modules** — extract each top-level command
+      (`feature`, `profile`, `init`, `run`, `migrate`, `listen`) into
+      `commands/*.js` and shared helpers into `helpers/` to reduce the
+      size of the main `claudeman` file (~1800 lines).
+- [ ] **Replace regex conversions with exact string lookup** —
+      `hooks.json` conversions use a regex `match` field to find v1 commands
+      and a `replace` field for the v2 equivalent. Since v1 hooks are already
+      detected via verbatim composite key matching (`hookType + matcher +
+  command`), the regex is redundant and fragile. Replace `match`/`replace`
+      with an exact `from`/`to` string map keyed by the full v1 command, and
+      simplify `loadConversions()` in `lib/migrate.js` accordingly.
 
 ---
 
@@ -50,6 +61,24 @@ Future enhancement ideas for claudeman. These are organized by category, not pri
 - [ ] Voice selection (different TTS voices)
 - [ ] Configuration to enable bell and/or voice
 - [ ] Silent mode (visual notifications only)
+
+### Voice Mode
+
+- [ ] **Support `/voice` dictation inside containers** — Claude Code's voice
+      mode requires microphone access and a native audio module (falls back to
+      SoX `rec` or ALSA `arecord` on Linux). Containers have no mic access by
+      default. Evaluate three approaches:
+  - **Devcontainer feature**: a `claude-voice` feature that installs SoX and
+    configures PulseAudio/PipeWire socket passthrough from host to container
+    (similar to how X11/Wayland forwarding works). May need a host-side socket
+    mount in `claudeman run`.
+  - **Host-side proxy via `claudeman listen`**: capture audio on the host
+    (where mic access exists) and forward to the container over the existing
+    TCP channel. Semantically fits the listener's role as the host-side bridge.
+  - **Hybrid**: feature installs SoX in the container, `claudeman run` mounts
+    the host audio socket, no custom proxy needed.
+  - See https://code.claude.com/docs/en/voice-dictation for requirements.
+    Voice requires Claude.ai auth (not API keys) and does not work over SSH.
 
 ---
 
