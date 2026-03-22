@@ -14,5 +14,21 @@
     "ghcr.io/schlich/devcontainer-features/playwright:0": {
       "browsers": "chromium"
     }
+  },
+  "extraDomains": [
+    "proxy.golang.org",
+    "sum.golang.org",
+    "storage.googleapis.com",
+    "pypi.org",
+    "files.pythonhosted.org",
+    "static.crates.io",
+    "index.crates.io"
+  ],
+  "cacheEnv": {
+    "GOMODCACHE": "go/mod",
+    "GOPATH": "go/path",
+    "PIP_CACHE_DIR": "pip",
+    "CARGO_HOME": "cargo",
+    "npm_config_cache": "npm"
   }
 }

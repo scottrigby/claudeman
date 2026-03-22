@@ -110,6 +110,38 @@ claudeman feature remove go myprof # Remove feature from profile
 
 Browse all features: https://containers.dev/features
 
+### Firewall Domains
+
+The container firewall blocks outbound traffic by default. Profiles can declare `extraDomains` for tools that need runtime network access (e.g., `go mod download`). The bundled `go` and `full` profiles include common domains.
+
+```bash
+claudeman domain list              # Show all allowed domains
+claudeman domain list go           # Show domains for a profile
+claudeman domain add pypi.org dev  # Add domain to a profile
+claudeman domain remove pypi.org dev
+```
+
+One-off domains via flag:
+
+```bash
+claudeman run --profile=go --extra-domains=example.com
+```
+
+### Persistent Caches
+
+Build and dependency caches persist across container restarts via `.claude/claudeman/cache/`. Profiles declare `cacheEnv` to map environment variables to cache subdirectories:
+
+```json
+{
+  "cacheEnv": {
+    "GOMODCACHE": "go/mod",
+    "GOPATH": "go/path"
+  }
+}
+```
+
+The bundled `go` and `full` profiles include cache settings for their respective tools. View a profile's cache config with `claudeman profile info <name>`.
+
 ### Initialization
 
 ```bash

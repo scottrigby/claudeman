@@ -5,5 +5,14 @@
     "ghcr.io/devcontainers/features/go:1": {
       "version": "latest"
     }
+  },
+  "extraDomains": [
+    "proxy.golang.org",
+    "sum.golang.org",
+    "storage.googleapis.com"
+  ],
+  "cacheEnv": {
+    "GOMODCACHE": "go/mod",
+    "GOPATH": "go/path"
   }
 }

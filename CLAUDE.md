@@ -9,6 +9,10 @@
 
 ## Testing
 
+If developing from inside a container (e.g., via claudeman itself), run
+`npm install` first — native modules like vitest's rolldown binding are
+platform-specific and need to be rebuilt for the container's architecture.
+
 Run the test suite:
 
 ```bash

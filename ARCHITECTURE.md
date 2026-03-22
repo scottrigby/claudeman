@@ -91,6 +91,75 @@ myproject/
 
 This matches upstream claudeman behavior and allows `/resume` to work across container restarts.
 
+## Firewall Domains
+
+The upstream devcontainer runs `init-firewall.sh` which blocks all outbound
+traffic except to a list of allowed domains (Anthropic API, npm registry,
+VS Code marketplace, etc.). Tools that need runtime network access like
+`go mod download` or `pip install` require additional domains to be allowed.
+
+### How it works
+
+The upstream firewall (PR [#40322](https://github.com/anthropics/claude-code/pull/40322))
+uses a hybrid static/dynamic ipset approach:
+
+- **Static ipset**: GitHub CIDR ranges (stable, fetched from the GitHub API)
+- **Dynamic ipset**: all other domains, resolved via DNS with a configurable
+  TTL (default 600s). A background loop re-resolves domains every
+  `DNS_REFRESH` seconds (default 300s) to track CDN IP rotation.
+- **`WHITELIST_DOMAINS` env var**: space-separated list of additional domains
+  merged into the dynamic set at container startup.
+
+Claudeman sets `WHITELIST_DOMAINS` as a process env var before calling the
+devcontainer CLI. The upstream `devcontainer.json` passes it into the container
+via `${localEnv:WHITELIST_DOMAINS:}`, and the `postStartCommand` forwards it
+through `sudo` to the firewall script.
+
+**Temporary fork:** Until PR #40322 merges upstream, claudeman fetches
+devcontainer files from `scottrigby/claude-code` instead of
+`anthropics/claude-code`. See the `UPSTREAM_BASE` constant in `claudeman`.
+
+### Domain sources
+
+Three sources of extra domains are merged (deduplicated) and passed via
+`WHITELIST_DOMAINS`:
+
+1. `host.containers.internal` — always added for notification TCP traffic
+2. Profile `extraDomains` — declared in the profile JSON
+3. `--extra-domains` flag — one-off additions at `claudeman run` time
+
+**Why per-profile, not global?** Different profiles need different domains — Go
+profiles need `proxy.golang.org`, Python needs `pypi.org`, etc. Putting domains
+in profiles keeps the configuration co-located with the features that need them.
+
+## Persistent Caches
+
+Containers are ephemeral — `go mod download`, `pip install`, etc. re-download
+everything on each run. Profiles solve this with `cacheEnv`: a map of environment
+variables to subdirectories under `.claude/claudeman/cache/`.
+
+**How it works:** At startup, claudeman creates each subdirectory on the host
+(under `PWD/.claude/claudeman/cache/`) and sets the corresponding env var in
+`remoteEnv`. Since `.claude/` is already bind-mounted, the cache directories are
+immediately available inside the container at
+`/home/node/.claude/claudeman/cache/`.
+
+**Why no extra mount?** The `.claude/` bind mount already covers the cache
+directory. Adding a separate mount would be redundant and fragile (mount ordering,
+nested bind mounts).
+
+**Why `cacheEnv` in profiles, not inferred from features?** Each tool has its own
+env var conventions (`GOMODCACHE`, `PIP_CACHE_DIR`, `CARGO_HOME`, etc.). Inferring
+from feature IDs would require maintaining a mapping of feature → env vars that
+could drift. Explicit declaration in the profile is simpler and transparent.
+
+**Why do devcontainer features rebuild every time?** The devcontainer CLI installs
+features using `RUN --mount=type=bind` in the generated Dockerfile, which
+prevents layer caching. This is an upstream limitation
+([devcontainers/spec#345](https://github.com/devcontainers/spec/issues/345)).
+The base image layers before feature installation are cached. `cacheEnv` mitigates
+the impact by persisting downloaded dependencies (the slow part) across rebuilds.
+
 ## Notifications
 
 Claude sessions inside containers need to notify the host when they need attention (task complete, question pending, etc.). This is critical when running multiple Claude sessions in different terminal tabs.
@@ -239,9 +308,13 @@ claudeman
 │   └── remove <id> <profile>  # Remove feature from profile
 ├── profile
 │   ├── list                   # Show all profiles with scopes
-│   ├── info <name>            # Show profile features
+│   ├── info <name>            # Show profile features and domains
 │   ├── create <name>          # Create new profile
 │   └── delete <name>          # Delete profile
+├── domain
+│   ├── add <domain> <profile> # Allow domain through container firewall
+│   ├── remove <domain> <profile>  # Remove allowed domain
+│   └── list [profile]         # List all allowed domains
 ├── migrate                    # Automate v1 → v2 migration (run 'claudeman migrate -h')
 │   ├── remove-v1-hooks        # Remove v1 hooks from settings.json
 │   ├── remove-v1-deps         # Delete v1 .cf dep files

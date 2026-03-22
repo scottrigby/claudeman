@@ -88,11 +88,27 @@ const PROJECT_PROFILES_DIR = path.join(
 );
 
 // Upstream devcontainer URLs
+// TODO: Switch back once PR #40322 is merged:
+// https://github.com/anthropics/claude-code/pull/40322
+// const UPSTREAM_BASE =
+//   "https://raw.githubusercontent.com/anthropics/claude-code/main/.devcontainer";
 const UPSTREAM_BASE =
-  "https://raw.githubusercontent.com/anthropics/claude-code/main/.devcontainer";
+  "https://raw.githubusercontent.com/scottrigby/claude-code/feature/hybrid-domain-firewall-fixed/.devcontainer";
 const UPSTREAM_DOCKERFILE = `${UPSTREAM_BASE}/Dockerfile`;
 const UPSTREAM_FIREWALL = `${UPSTREAM_BASE}/init-firewall.sh`;
 const UPSTREAM_DEVCONTAINER_JSON = `${UPSTREAM_BASE}/devcontainer.json`;
+
+// Built-in domains allowed by the upstream init-firewall.sh
+const BUILTIN_FIREWALL_DOMAINS = [
+  "registry.npmjs.org",
+  "api.anthropic.com",
+  "sentry.io",
+  "statsig.anthropic.com",
+  "statsig.com",
+  "marketplace.visualstudio.com",
+  "vscode.blob.core.windows.net",
+  "update.code.visualstudio.com",
+];
 
 // Feature index from containers.dev (updated daily, ~1.5MB)
 const FEATURE_INDEX_URL =
@@ -446,6 +462,23 @@ function profileInfo(name) {
   } else {
     console.log(`\nFeatures: none`);
   }
+
+  const domains = profile.extraDomains || [];
+  if (domains.length > 0) {
+    console.log(`\nExtra domains (${domains.length}):`);
+    for (const d of domains) {
+      console.log(`  ${d}`);
+    }
+  }
+
+  const cacheEnv = profile.cacheEnv || {};
+  const cacheEntries = Object.entries(cacheEnv);
+  if (cacheEntries.length > 0) {
+    console.log(`\nPersistent caches (${cacheEntries.length}):`);
+    for (const [envVar, subdir] of cacheEntries) {
+      console.log(`  ${envVar} → .claude/claudeman/cache/${subdir}`);
+    }
+  }
 }
 
 function profileCreate(name, scope, description = "") {
@@ -540,6 +573,107 @@ function featureRemove(featureId, profileName, scope) {
   delete profile.features[featureId];
   fs.writeFileSync(profilePath, JSON.stringify(profile, null, 2));
   console.log(`Removed ${featureId} from ${profileName} (${scope})`);
+}
+
+// ============================================================================
+// Domain commands
+// ============================================================================
+
+function domainAdd(domain, profileName, scope) {
+  if (scope === "app") {
+    console.error("Cannot modify profiles in app scope (read-only)");
+    process.exit(1);
+  }
+
+  const profilePath = getProfilePath(profileName, scope);
+
+  let profile;
+  if (fs.existsSync(profilePath)) {
+    profile = JSON.parse(fs.readFileSync(profilePath, "utf8"));
+  } else {
+    const existing = loadProfile(profileName);
+    if (existing) {
+      profile = JSON.parse(JSON.stringify(existing));
+      console.log(`Copying profile from higher scope to ${scope}...`);
+    } else {
+      profile = { name: profileName, description: "", features: {} };
+      console.log(`Creating new profile in ${scope} scope...`);
+    }
+    ensureProfileDir(scope);
+  }
+
+  if (!profile.extraDomains) profile.extraDomains = [];
+  if (profile.extraDomains.includes(domain)) {
+    console.log(`Domain already in profile: ${domain}`);
+    return;
+  }
+
+  profile.extraDomains.push(domain);
+  fs.writeFileSync(profilePath, JSON.stringify(profile, null, 2));
+  console.log(`Added ${domain} to ${profileName} (${scope})`);
+}
+
+function domainRemove(domain, profileName, scope) {
+  if (scope === "app") {
+    console.error("Cannot modify profiles in app scope (read-only)");
+    process.exit(1);
+  }
+
+  const profilePath = getProfilePath(profileName, scope);
+
+  if (!fs.existsSync(profilePath)) {
+    console.error(`Profile not found at ${scope} scope: ${profileName}`);
+    process.exit(1);
+  }
+
+  const profile = JSON.parse(fs.readFileSync(profilePath, "utf8"));
+
+  if (!profile.extraDomains || !profile.extraDomains.includes(domain)) {
+    console.log(`Domain not in profile: ${domain}`);
+    return;
+  }
+
+  profile.extraDomains = profile.extraDomains.filter((d) => d !== domain);
+  if (profile.extraDomains.length === 0) delete profile.extraDomains;
+  fs.writeFileSync(profilePath, JSON.stringify(profile, null, 2));
+  console.log(`Removed ${domain} from ${profileName} (${scope})`);
+}
+
+function domainList(profileName) {
+  console.log("Built-in (upstream firewall):");
+  for (const d of BUILTIN_FIREWALL_DOMAINS) console.log(`  ${d}`);
+  console.log();
+  console.log("Added by claudeman:");
+  console.log("  host.containers.internal");
+  console.log();
+
+  if (profileName) {
+    const profile = loadProfile(profileName);
+    if (!profile) {
+      console.error(`Profile not found: ${profileName}`);
+      process.exit(1);
+    }
+    const domains = profile.extraDomains || [];
+    if (domains.length === 0) {
+      console.log(`No additional domains in profile: ${profileName}`);
+    } else {
+      console.log(`Profile "${profileName}":`);
+      for (const d of domains) console.log(`  ${d}`);
+    }
+  } else {
+    const profiles = getAllProfiles();
+    let found = false;
+    for (const [name, { profile }] of profiles) {
+      const domains = profile.extraDomains || [];
+      if (domains.length > 0) {
+        found = true;
+        console.log(`Profile "${name}":`);
+        for (const d of domains) console.log(`  ${d}`);
+        console.log();
+      }
+    }
+    if (!found) console.log("No profiles have additional domains configured.");
+  }
 }
 
 // ============================================================================
@@ -1072,6 +1206,8 @@ async function runDevcontainer(
   profileName,
   workspaceFolder,
   claudeExtraArgs = [],
+  extraDomains = [],
+  localDevcontainerDir = null,
 ) {
   // Check for container runtime
   if (!CONTAINER_RUNTIME) {
@@ -1112,8 +1248,12 @@ async function runDevcontainer(
         // Container may already be stopped
       }
     }
-    // Clean up temp devcontainer directory
-    if (devcontainerDir && fs.existsSync(devcontainerDir)) {
+    // Clean up temp devcontainer directory (skip if using local dir)
+    if (
+      !localDevcontainerDir &&
+      devcontainerDir &&
+      fs.existsSync(devcontainerDir)
+    ) {
       try {
         fs.rmSync(devcontainerDir, { recursive: true, force: true });
       } catch {
@@ -1155,41 +1295,55 @@ async function runDevcontainer(
     fs.chmodSync(notifyDst, 0o755);
 
     // Create temp directory for devcontainer config (using --config flag)
+    // Merge extra domains: host.containers.internal + profile + --extra-domains flag.
+    // Set as process env var so ${localEnv:WHITELIST_DOMAINS:} in devcontainer.json
+    // picks it up — no need to override containerEnv or write fallback files.
+    const profileDomains = profile.extraDomains || [];
+    const allExtraDomains = [
+      "host.containers.internal",
+      ...profileDomains,
+      ...extraDomains,
+    ];
+    const uniqueDomains = [...new Set(allExtraDomains)];
+    if (uniqueDomains.length > 0) {
+      process.env.WHITELIST_DOMAINS = uniqueDomains.join(" ");
+    }
+
+    // Create temp directory for devcontainer config
     devcontainerDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "claudeman-devcontainer-"),
     );
 
-    // Fetch upstream devcontainer config files
-    const [dockerfile, firewall, upstreamConfigRaw] = await Promise.all([
-      fetchUrl(UPSTREAM_DOCKERFILE),
-      fetchUrl(UPSTREAM_FIREWALL),
-      fetchUrl(UPSTREAM_DEVCONTAINER_JSON),
-    ]);
+    let upstreamConfigRaw;
 
-    // Patch firewall script to allow host.containers.internal (for notifications)
-    // The upstream script calculates HOST_NETWORK from the default gateway's /24 subnet,
-    // but host.containers.internal often resolves to an IP outside that range.
-    // Example: gateway 10.88.0.1 → allows 10.88.0.0/24, but host.containers.internal
-    // resolves to 192.168.127.254, causing EHOSTUNREACH when notifications try to connect.
-    const patchedFirewall = firewall.replace(
-      /# Set up remaining iptables rules\n/,
-      `# Allow traffic to host.containers.internal for notifications
-HOST_CONTAINERS_INTERNAL_IP=$(getent hosts host.containers.internal 2>/dev/null | awk '{print $1}')
-if [ -n "$HOST_CONTAINERS_INTERNAL_IP" ]; then
-    echo "Allowing traffic to host.containers.internal ($HOST_CONTAINERS_INTERNAL_IP)"
-    iptables -A OUTPUT -d "$HOST_CONTAINERS_INTERNAL_IP" -j ACCEPT
-fi
+    if (localDevcontainerDir) {
+      // Copy local devcontainer files to temp dir (never write to the source)
+      console.log(`Using local devcontainer dir: ${localDevcontainerDir}`);
+      for (const f of ["Dockerfile", "init-firewall.sh"]) {
+        fs.copyFileSync(
+          path.join(localDevcontainerDir, f),
+          path.join(devcontainerDir, f),
+        );
+      }
+      upstreamConfigRaw = fs.readFileSync(
+        path.join(localDevcontainerDir, "devcontainer.json"),
+        "utf8",
+      );
+    } else {
+      // Fetch upstream devcontainer config files
+      const [dockerfile, firewall, configRaw] = await Promise.all([
+        fetchUrl(UPSTREAM_DOCKERFILE),
+        fetchUrl(UPSTREAM_FIREWALL),
+        fetchUrl(UPSTREAM_DEVCONTAINER_JSON),
+      ]);
+      upstreamConfigRaw = configRaw;
 
-# Set up remaining iptables rules
-`,
-    );
-
-    // Write devcontainer config files to temp directory
-    fs.writeFileSync(path.join(devcontainerDir, "Dockerfile"), dockerfile);
-    fs.writeFileSync(
-      path.join(devcontainerDir, "init-firewall.sh"),
-      patchedFirewall,
-    );
+      fs.writeFileSync(path.join(devcontainerDir, "Dockerfile"), dockerfile);
+      fs.writeFileSync(
+        path.join(devcontainerDir, "init-firewall.sh"),
+        firewall,
+      );
+    }
 
     // Get terminal info for notifications (before config generation)
     const termProgram = process.env.TERM_PROGRAM || "";
@@ -1205,10 +1359,20 @@ fi
     const upstreamConfig = JSON.parse(upstreamConfigRaw);
 
     // Merge profile features into upstream config
+    // Set up persistent cache directories from profile cacheEnv
+    const cacheRoot = path.join(claudeDir, "claudeman", "cache");
+    const cacheEnvVars = {};
+    const profileCacheEnv = profile.cacheEnv || {};
+    for (const [envVar, subdir] of Object.entries(profileCacheEnv)) {
+      const hostDir = path.join(cacheRoot, subdir);
+      if (!fs.existsSync(hostDir)) {
+        fs.mkdirSync(hostDir, { recursive: true });
+      }
+      cacheEnvVars[envVar] = `/home/node/.claude/claudeman/cache/${subdir}`;
+    }
+
     const config = {
       ...upstreamConfig,
-      // Override name with profile info
-      name: `Claude Code (${profile.name || profileName})`,
       // Merge profile features with any upstream features
       features: {
         ...(upstreamConfig.features || {}),
@@ -1220,10 +1384,11 @@ fi
         `source=${claudeDir},target=/home/node/.claude,type=bind`,
         `source=${historyFile},target=/commandhistory/.bash_history,type=bind`,
       ],
-      // Add claudeman bin to PATH and set terminal info for notifications
+      // Add claudeman bin to PATH, cache env vars, and terminal info for notifications
       remoteEnv: {
         ...(upstreamConfig.remoteEnv || {}),
         PATH: "${containerEnv:PATH}:/home/node/.claude/claudeman/bin",
+        ...cacheEnvVars,
         ...(termProgram && { TERM_PROGRAM: termProgram }),
         ...(termId && { TERM_ID: termId }),
       },
@@ -1314,6 +1479,7 @@ Usage: claudeman <command> [options]
 Commands:
   feature     Search and inspect devcontainer features
   profile     Manage profiles (feature collections)
+  domain      Manage allowed firewall domains in profiles
   init        Set up notification hooks and CLAUDE.md in current project
   run         Start Claude in a devcontainer (stops on exit)
   listen      Start notification listener (run on host)
@@ -1367,6 +1533,30 @@ Examples:
   claudeman profile list
   claudeman profile info go
   claudeman profile create myprofile --scope project
+`);
+}
+
+function domainHelp() {
+  console.log(`claudeman domain - Manage allowed firewall domains in profiles
+
+Usage: claudeman domain <subcommand> [options]
+
+Subcommands:
+  add <domain> <profile> [--scope S]     Allow a domain through the container firewall
+  remove <domain> <profile> [--scope S]  Remove an allowed domain from a profile
+  list [profile]                         List allowed domains (all profiles or one)
+
+Domains are resolved via DNS at container startup and added to the
+firewall allowlist. Use this for tools that need network access at
+runtime (e.g., go mod download, pip install).
+
+Scope: user or project (app is read-only). Prompts if not specified.
+
+Examples:
+  claudeman domain add proxy.golang.org go --scope project
+  claudeman domain add sum.golang.org go --scope project
+  claudeman domain remove proxy.golang.org go --scope project
+  claudeman domain list go
 `);
 }
 
@@ -1477,6 +1667,36 @@ async function main() {
       break;
     }
 
+    case "domain": {
+      const subCmd = args[1];
+      if (!subCmd || subCmd === "-h" || subCmd === "--help") {
+        domainHelp();
+      } else if (subCmd === "add" && args[2] && args[3]) {
+        const domain = args[2];
+        const profileName = args[3];
+        const scopeIdx = args.indexOf("--scope");
+        const scope =
+          scopeIdx !== -1 && args[scopeIdx + 1]
+            ? args[scopeIdx + 1]
+            : await promptScope();
+        domainAdd(domain, profileName, scope);
+      } else if (subCmd === "remove" && args[2] && args[3]) {
+        const domain = args[2];
+        const profileName = args[3];
+        const scopeIdx = args.indexOf("--scope");
+        const scope =
+          scopeIdx !== -1 && args[scopeIdx + 1]
+            ? args[scopeIdx + 1]
+            : await promptScope();
+        domainRemove(domain, profileName, scope);
+      } else if (subCmd === "list") {
+        domainList(args[2]);
+      } else {
+        domainHelp();
+      }
+      break;
+    }
+
     case "init": {
       if (args.includes("-h") || args.includes("--help")) {
         console.log(`claudeman init - Set up notifications for current project
@@ -1568,6 +1788,8 @@ Examples:
     case "run": {
       let profileName = "minimal";
       let workspaceFolder = process.cwd();
+      let extraDomains = [];
+      let devcontainerDir = null;
       const ddIdx = args.indexOf("--");
       const claudeExtraArgs = ddIdx !== -1 ? args.slice(ddIdx + 1) : [];
       const runArgs = ddIdx !== -1 ? args.slice(0, ddIdx) : args;
@@ -1576,6 +1798,10 @@ Examples:
           profileName = arg.split("=")[1];
         } else if (arg.startsWith("--workspace=")) {
           workspaceFolder = arg.split("=")[1];
+        } else if (arg.startsWith("--extra-domains=")) {
+          extraDomains = arg.split("=")[1].split(",").filter(Boolean);
+        } else if (arg.startsWith("--devcontainer-dir=")) {
+          devcontainerDir = arg.split("=")[1];
         }
       }
       if (runArgs.includes("-h") || runArgs.includes("--help")) {
@@ -1589,18 +1815,28 @@ Lifecycle:
   3. Stops and removes container on exit (Ctrl+C or claude exit)
 
 Options:
-  --profile=<name>      Profile to use (default: minimal)
-  --workspace=<path>    Workspace folder (default: current directory)
+  --profile=<name>            Profile to use (default: minimal)
+  --workspace=<path>          Workspace folder (default: current directory)
+  --extra-domains=<d1,d2,...> Allow extra domains through the container firewall
+  --devcontainer-dir=<path>   Use local devcontainer files instead of fetching upstream
 
-  --                    Pass remaining flags directly to the claude command
+  --                          Pass remaining flags directly to the claude command
 
 Examples:
   claudeman run --profile=go
   claudeman run --profile=full --workspace=/path/to/project
+  claudeman run --extra-domains=proxy.golang.org,sum.golang.org
+  claudeman run --devcontainer-dir=./path/to/.devcontainer
   claudeman run -- --plugin-dir /home/node/.claude/claudeman/plugins/ask-questions
 `);
       } else {
-        await runDevcontainer(profileName, workspaceFolder, claudeExtraArgs);
+        await runDevcontainer(
+          profileName,
+          workspaceFolder,
+          claudeExtraArgs,
+          extraDomains,
+          devcontainerDir,
+        );
       }
       break;
     }

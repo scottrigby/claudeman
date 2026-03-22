@@ -24,9 +24,17 @@ Future enhancement ideas for claudeman. These are organized by category, not pri
       `hooks.json` conversions use a regex `match` field to find v1 commands
       and a `replace` field for the v2 equivalent. Since v1 hooks are already
       detected via verbatim composite key matching (`hookType + matcher +
-  command`), the regex is redundant and fragile. Replace `match`/`replace`
+command`), the regex is redundant and fragile. Replace `match`/`replace`
       with an exact `from`/`to` string map keyed by the full v1 command, and
       simplify `loadConversions()` in `lib/migrate.js` accordingly.
+
+---
+
+## Runtime
+
+- [ ] **Switch `UPSTREAM_BASE` back to `anthropics/claude-code/main`** —
+      once upstream PR [#40322](https://github.com/anthropics/claude-code/pull/40322)
+      merges (hybrid firewall with `WHITELIST_DOMAINS`).
 
 ---
 
