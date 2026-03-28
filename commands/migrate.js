@@ -1,3 +1,4 @@
+import { Command } from "commander";
 import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
@@ -18,7 +19,6 @@ import {
 import { fetchUrl } from "../helpers/devcontainer.js";
 import { mergeHooks } from "../lib/merge-hooks.js";
 import {
-  parseMigrateFlags,
   getSettingsPaths,
   getDepDirs,
   loadV1HookCommandSets,
@@ -38,6 +38,14 @@ import {
 
 const MIGRATE_V1_HOOKS_DIR = path.join(SCRIPT_DIR, "migrate", "v1", "hooks");
 const MIGRATE_V1_DEPS_DIR = path.join(SCRIPT_DIR, "migrate", "v1", "deps");
+
+// Custom option processor: split comma-separated values into arrays
+function parseList(value) {
+  return value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 // Load v1 hook command sets from app scope plus all user/project scope config dirs.
 // Merges commands into a single Map so detection covers user-customized hooks too.
@@ -117,8 +125,7 @@ async function offerDeleteConfigFiles(hookEntries, flags, label = "removed") {
   }
 }
 
-async function migrateRemoveV1Hooks(migrateArgs) {
-  const flags = parseMigrateFlags(migrateArgs);
+async function migrateRemoveV1Hooks(flags) {
   const toV2Command = conversions();
   const appCmds = appDefinedCmds(flags.hooks);
   const scopeResults = scanV1HookScopes(flags);
@@ -162,8 +169,7 @@ async function migrateRemoveV1Hooks(migrateArgs) {
   }
 }
 
-async function migrateConvertV1Hooks(migrateArgs) {
-  const flags = parseMigrateFlags(migrateArgs);
+async function migrateConvertV1Hooks(flags) {
   const toV2Command = conversions();
   const appCmds = appDefinedCmds(flags.hooks);
   const pluginMap = pluginReplacements();
@@ -283,8 +289,7 @@ async function migrateConvertV1Hooks(migrateArgs) {
   }
 }
 
-async function migrateRemoveV1Deps(migrateArgs) {
-  const flags = parseMigrateFlags(migrateArgs);
+async function migrateRemoveV1Deps(flags) {
   const scopeResults = scanV1DepScopes(flags);
 
   if (scopeResults.length === 0) {
@@ -310,8 +315,7 @@ async function migrateRemoveV1Deps(migrateArgs) {
   }
 }
 
-async function migrateConvertV1Deps(migrateArgs) {
-  const flags = parseMigrateFlags(migrateArgs);
+async function migrateConvertV1Deps(flags) {
   const { deps: depMap } = JSON.parse(
     fs.readFileSync(
       path.join(SCRIPT_DIR, "migrate", "v1", "deps.json"),
@@ -508,157 +512,65 @@ async function installPluginInContainer(plugin, workspaceFolder) {
   }
 }
 
-export async function migrateCommand(args) {
-  const subCmd = args[1];
-  const migrateArgs = args.slice(2);
+export const migrateCmd = new Command("migrate").description(
+  "Migrate from v1 to v2",
+);
 
-  const migrateHelp = () =>
-    console.log(`claudeman migrate - Migrate from v1 to v2
-
-Usage: claudeman migrate <subcommand> [flags]
-
-Subcommands:
-  remove-v1-hooks    Remove v1 hook commands from settings.json
-  remove-v1-deps     Delete v1 .cf dep files
-  convert-v1-hooks   Replace v1 hook commands with v2 equivalents
-  convert-v1-deps    Map v1 .cf deps to v2 profiles and features
-
-Shared flags:
-  -y, --yes                    Skip all confirmation prompts (auto-accept)
-  --scope=user|project|all     Limit to a specific scope (default: all)
-  --hooks=NAME,...             Filter to specific hook configs (e.g. q-notify,prettier)
-  --deps=NAME,...              Filter to specific dep files (e.g. go,python)
-
-Detection uses verbatim matching against v1 fixture files from three scopes:
-  app      migrate/v1/hooks/ or migrate/v1/deps/  (bundled)
-  user     ~/.config/claudeman/hooks/ or ~/.config/claudeman/deps/
-  project  .claude/claudeman/hooks/ or .claude/claudeman/deps/
-
-Run 'claudeman migrate <subcommand> -h' for subcommand-specific help.
-
-Examples:
-  claudeman migrate remove-v1-hooks
-  claudeman migrate remove-v1-hooks --scope=project -y
-  claudeman migrate convert-v1-hooks --hooks=q-notify
-  claudeman migrate remove-v1-deps --deps=go,python
-  claudeman migrate convert-v1-deps
-`);
-
-  const removeV1HooksHelp = () =>
-    console.log(`claudeman migrate remove-v1-hooks - Remove v1 hook commands from settings.json
-
-Usage: claudeman migrate remove-v1-hooks [flags]
-
-Scans settings.json (per scope) for hook commands that verbatim-match v1 fixtures,
-then removes them. If any found hooks have known v2 equivalents, warns and suggests
-'convert-v1-hooks' instead. After removal, offers to delete matching v1 hook config
-files from .claude/claudeman/hooks/ and ~/.config/claudeman/hooks/.
-
-Flags:
-  -y, --yes                Skip all confirmation prompts (auto-accept)
-  --scope=user|project|all Limit scope (default: all)
-  --hooks=NAME,...         Filter to specific hook configs
-
-Examples:
-  claudeman migrate remove-v1-hooks
-  claudeman migrate remove-v1-hooks --scope=project -y
-  claudeman migrate remove-v1-hooks --hooks=prettier,gofmt
-`);
-
-  const convertV1HooksHelp = () =>
-    console.log(`claudeman migrate convert-v1-hooks - Replace v1 hook commands with v2 equivalents
-
-Usage: claudeman migrate convert-v1-hooks [flags]
-
-Scans settings.json (per scope) for v1 hook commands, classifies each:
-
-  Convertible      App-defined hook with a known v2 equivalent → auto-replace
-  App-defined      App-defined hook with no v2 equivalent → inform, no auto-action
-  Custom           Matches user/project fixture only → no known path, manual review
-
-After conversion, offers to delete matching v1 hook config files from
-.claude/claudeman/hooks/ and ~/.config/claudeman/hooks/.
-
-Flags:
-  -y, --yes                Skip all confirmation prompts (auto-accept)
-  --scope=user|project|all Limit scope (default: all)
-  --hooks=NAME,...         Filter to specific hook configs
-
-Examples:
-  claudeman migrate convert-v1-hooks
-  claudeman migrate convert-v1-hooks --hooks=q-notify -y
-`);
-
-  const removeV1DepsHelp = () =>
-    console.log(`claudeman migrate remove-v1-deps - Delete v1 .cf dep files
-
-Usage: claudeman migrate remove-v1-deps [flags]
-
-Scans dep directories for .cf Containerfile fragment files and deletes them.
-
-  project  .claude/claudeman/deps/
-  user     ~/.config/claudeman/deps/
-
-Flags:
-  -y, --yes                Skip all confirmation prompts (auto-accept)
-  --scope=user|project|all Limit scope (default: all)
-  --deps=NAME,...          Filter to specific dep files
-
-Examples:
-  claudeman migrate remove-v1-deps
-  claudeman migrate remove-v1-deps --deps=go,python -y
-`);
-
-  const convertV1DepsHelp = () =>
-    console.log(`claudeman migrate convert-v1-deps - Map v1 .cf deps to v2 profiles and features
-
-Usage: claudeman migrate convert-v1-deps [flags]
-
-Scans dep directories for .cf files, classifies each by content:
-
-  App-defined   Content matches a bundled fixture → map to bundled profile or
-                offer to create a user-scope profile (uses deps.json mappings)
-  Custom        No content match → print preview, suggest 'claudeman feature search'
-
-Does not delete .cf files. Use 'remove-v1-deps' to delete them.
-
-Flags:
-  -y, --yes                Skip all confirmation prompts (auto-accept)
-  --scope=user|project|all Limit scope (default: all)
-  --deps=NAME,...          Filter to specific dep files
-
-Examples:
-  claudeman migrate convert-v1-deps
-  claudeman migrate convert-v1-deps --deps=go
-`);
-
-  if (!subCmd || subCmd === "-h" || subCmd === "--help") {
-    migrateHelp();
-  } else if (subCmd === "remove-v1-hooks") {
-    if (migrateArgs.includes("-h") || migrateArgs.includes("--help")) {
-      removeV1HooksHelp();
-    } else {
-      await migrateRemoveV1Hooks(migrateArgs);
-    }
-  } else if (subCmd === "remove-v1-deps") {
-    if (migrateArgs.includes("-h") || migrateArgs.includes("--help")) {
-      removeV1DepsHelp();
-    } else {
-      await migrateRemoveV1Deps(migrateArgs);
-    }
-  } else if (subCmd === "convert-v1-hooks") {
-    if (migrateArgs.includes("-h") || migrateArgs.includes("--help")) {
-      convertV1HooksHelp();
-    } else {
-      await migrateConvertV1Hooks(migrateArgs);
-    }
-  } else if (subCmd === "convert-v1-deps") {
-    if (migrateArgs.includes("-h") || migrateArgs.includes("--help")) {
-      convertV1DepsHelp();
-    } else {
-      await migrateConvertV1Deps(migrateArgs);
-    }
-  } else {
-    migrateHelp();
-  }
+// Shared options for all migrate subcommands
+function addMigrateOptions(cmd) {
+  return cmd
+    .option("-y, --yes", "Skip all confirmation prompts")
+    .option("--scope <scope>", "Limit to scope (user|project|all)", "all");
 }
+
+addMigrateOptions(
+  migrateCmd
+    .command("remove-v1-hooks")
+    .description("Remove v1 hook commands from settings.json")
+    .option(
+      "--hooks <names>",
+      "Filter to specific hook configs (comma-separated)",
+      parseList,
+    ),
+).action(async (opts) => {
+  await migrateRemoveV1Hooks(opts);
+});
+
+addMigrateOptions(
+  migrateCmd
+    .command("remove-v1-deps")
+    .description("Delete v1 .cf dep files")
+    .option(
+      "--deps <names>",
+      "Filter to specific dep files (comma-separated)",
+      parseList,
+    ),
+).action(async (opts) => {
+  await migrateRemoveV1Deps(opts);
+});
+
+addMigrateOptions(
+  migrateCmd
+    .command("convert-v1-hooks")
+    .description("Replace v1 hook commands with v2 equivalents")
+    .option(
+      "--hooks <names>",
+      "Filter to specific hook configs (comma-separated)",
+      parseList,
+    ),
+).action(async (opts) => {
+  await migrateConvertV1Hooks(opts);
+});
+
+addMigrateOptions(
+  migrateCmd
+    .command("convert-v1-deps")
+    .description("Map v1 .cf deps to v2 profiles and features")
+    .option(
+      "--deps <names>",
+      "Filter to specific dep files (comma-separated)",
+      parseList,
+    ),
+).action(async (opts) => {
+  await migrateConvertV1Deps(opts);
+});

@@ -1,3 +1,4 @@
+import { Command } from "commander";
 import fs from "fs";
 import {
   BUILTIN_FIREWALL_DOMAINS,
@@ -105,55 +106,31 @@ function domainList(profileName) {
   }
 }
 
-function domainHelp() {
-  console.log(`claudeman domain - Manage allowed firewall domains in profiles
+export const domainCmd = new Command("domain").description(
+  "Manage allowed firewall domains in profiles",
+);
 
-Usage: claudeman domain <subcommand> [options]
+domainCmd
+  .command("add <domain> <profile>")
+  .description("Allow a domain through the container firewall")
+  .option("--scope <scope>", "Scope (user or project)")
+  .action(async (domain, profile, opts) => {
+    const scope = opts.scope || (await promptScope());
+    domainAdd(domain, profile, scope);
+  });
 
-Subcommands:
-  add <domain> <profile> [--scope S]     Allow a domain through the container firewall
-  remove <domain> <profile> [--scope S]  Remove an allowed domain from a profile
-  list [profile]                         List allowed domains (all profiles or one)
+domainCmd
+  .command("remove <domain> <profile>")
+  .description("Remove an allowed domain from a profile")
+  .option("--scope <scope>", "Scope (user or project)")
+  .action(async (domain, profile, opts) => {
+    const scope = opts.scope || (await promptScope());
+    domainRemove(domain, profile, scope);
+  });
 
-Domains are resolved via DNS at container startup and added to the
-firewall allowlist. Use this for tools that need network access at
-runtime (e.g., go mod download, pip install).
-
-Scope: user or project (app is read-only). Prompts if not specified.
-
-Examples:
-  claudeman domain add proxy.golang.org go --scope project
-  claudeman domain add sum.golang.org go --scope project
-  claudeman domain remove proxy.golang.org go --scope project
-  claudeman domain list go
-`);
-}
-
-export async function domainCommand(args) {
-  const subCmd = args[1];
-  if (!subCmd || subCmd === "-h" || subCmd === "--help") {
-    domainHelp();
-  } else if (subCmd === "add" && args[2] && args[3]) {
-    const domain = args[2];
-    const profileName = args[3];
-    const scopeIdx = args.indexOf("--scope");
-    const scope =
-      scopeIdx !== -1 && args[scopeIdx + 1]
-        ? args[scopeIdx + 1]
-        : await promptScope();
-    domainAdd(domain, profileName, scope);
-  } else if (subCmd === "remove" && args[2] && args[3]) {
-    const domain = args[2];
-    const profileName = args[3];
-    const scopeIdx = args.indexOf("--scope");
-    const scope =
-      scopeIdx !== -1 && args[scopeIdx + 1]
-        ? args[scopeIdx + 1]
-        : await promptScope();
-    domainRemove(domain, profileName, scope);
-  } else if (subCmd === "list") {
-    domainList(args[2]);
-  } else {
-    domainHelp();
-  }
-}
+domainCmd
+  .command("list [profile]")
+  .description("List allowed domains (all profiles or one)")
+  .action((profile) => {
+    domainList(profile);
+  });

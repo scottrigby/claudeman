@@ -134,15 +134,15 @@ describe("migrate CLI — remove-v1-hooks", () => {
     expect(readFileSync(settingsPath, "utf8")).toBe(original);
   });
 
-  it("--force does not skip confirmation (answered n → skipped)", async () => {
+  it("--force is rejected as unknown option", async () => {
     writeFileSync(settingsPath, JSON.stringify(ONLY_V1_HOOKS, null, 2));
     const original = readFileSync(settingsPath, "utf8");
     const result = await run(
       ["remove-v1-hooks", "--scope=project", "--force"],
-      { cwd: tmpDir, xdgConfig, input: "n\n" },
+      { cwd: tmpDir, xdgConfig },
     );
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("Skipped");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("unknown option");
     expect(readFileSync(settingsPath, "utf8")).toBe(original);
   });
 

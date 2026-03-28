@@ -12,6 +12,12 @@ const __dirname = dirname(__filename);
 // Package root (one level up from helpers/)
 export const SCRIPT_DIR = path.resolve(__dirname, "..");
 
+// Version from package.json (single source of truth)
+const pkg = JSON.parse(
+  fs.readFileSync(path.join(SCRIPT_DIR, "package.json"), "utf8"),
+);
+export const VERSION = pkg.version;
+
 // Local devcontainer CLI (from node_modules)
 export const DEVCONTAINER_CLI = path.join(
   SCRIPT_DIR,

@@ -9,70 +9,33 @@
  * - Dynamic environment variables (TERM_PROGRAM, TERM_ID)
  */
 
-import { featureCommand } from "./commands/feature.js";
-import { profileCommand } from "./commands/profile.js";
-import { domainCommand } from "./commands/domain.js";
-import { initCommand } from "./commands/init.js";
-import { runCommand } from "./commands/run.js";
-import { migrateCommand } from "./commands/migrate.js";
-import { listenCommand } from "./commands/listen.js";
+import { Command } from "commander";
+import { VERSION } from "./helpers/settings.js";
+import { featureCmd } from "./commands/feature.js";
+import { profileCmd } from "./commands/profile.js";
+import { domainCmd } from "./commands/domain.js";
+import { initCmd } from "./commands/init.js";
+import { runCmd } from "./commands/run.js";
+import { migrateCmd } from "./commands/migrate.js";
+import { listenCmd } from "./commands/listen.js";
 
-function mainHelp() {
-  console.log(`claudeman - Run Claude Code in devcontainers with profiles
+const program = new Command();
 
-Usage: claudeman <command> [options]
+program
+  .name("claudeman")
+  .description("Run Claude Code in devcontainers with profiles")
+  .version(VERSION, "-v, --version")
+  .enablePositionalOptions();
 
-Commands:
-  feature     Search and inspect devcontainer features
-  profile     Manage profiles (feature collections)
-  domain      Manage allowed firewall domains in profiles
-  init        Set up notification hooks and CLAUDE.md in current project
-  run         Start Claude in a devcontainer (stops on exit)
-  listen      Start notification listener (run on host)
-  migrate     Migrate from v1 to v2
-  help        Show this help
+program.addCommand(featureCmd);
+program.addCommand(profileCmd);
+program.addCommand(domainCmd);
+program.addCommand(initCmd);
+program.addCommand(runCmd);
+program.addCommand(migrateCmd);
+program.addCommand(listenCmd);
 
-Run 'claudeman <command> -h' for command-specific help.
-`);
-}
-
-async function main() {
-  const args = process.argv.slice(2);
-  const command = args[0];
-
-  if (
-    !command ||
-    command === "help" ||
-    command === "--help" ||
-    command === "-h"
-  ) {
-    mainHelp();
-    process.exit(0);
-  }
-
-  switch (command) {
-    case "feature":
-      return featureCommand(args);
-    case "profile":
-      return profileCommand(args);
-    case "domain":
-      return domainCommand(args);
-    case "init":
-      return initCommand(args);
-    case "run":
-      return runCommand(args);
-    case "migrate":
-      return migrateCommand(args);
-    case "listen":
-      return listenCommand(args);
-    default:
-      console.error(`Unknown command: ${command}`);
-      mainHelp();
-      process.exit(1);
-  }
-}
-
-main().catch((err) => {
+program.parseAsync().catch((err) => {
   console.error(err.message);
   process.exit(1);
 });

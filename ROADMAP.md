@@ -16,10 +16,6 @@ Future enhancement ideas for claudeman. These are organized by category, not pri
       `.claude/claudeman/hooks/` or `~/.config/claudeman/hooks/`) — print a
       one-time warning and suggest running `claudeman migrate`. Suppress with
       `--ignore-v1-artifacts` (or persist suppression in user config).
-- [ ] **Split CLI into command modules** — extract each top-level command
-      (`feature`, `profile`, `init`, `run`, `migrate`, `listen`) into
-      `commands/*.js` and shared helpers into `helpers/` to reduce the
-      size of the main `claudeman` file (~1800 lines).
 - [ ] **Replace regex conversions with exact string lookup** —
       `hooks.json` conversions use a regex `match` field to find v1 commands
       and a `replace` field for the v2 equivalent. Since v1 hooks are already

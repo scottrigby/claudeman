@@ -1,3 +1,4 @@
+import { Command } from "commander";
 import fs from "fs";
 import {
   FEATURE_INDEX_URL,
@@ -220,64 +221,40 @@ function featureRemove(featureId, profileName, scope) {
   console.log(`Removed ${featureId} from ${profileName} (${scope})`);
 }
 
-function featureHelp() {
-  console.log(`claudeman feature - Search, inspect, and manage features
+export const featureCmd = new Command("feature").description(
+  "Search and inspect devcontainer features",
+);
 
-Usage: claudeman feature <subcommand> [options]
+featureCmd
+  .command("search <query>")
+  .description("Search features by name/description")
+  .option("-n <limit>", "Max results", "30")
+  .action(async (query, opts) => {
+    const limit = parseInt(opts.n, 10) || 30;
+    await featureSearch(query, limit);
+  });
 
-Subcommands:
-  search <query> [-n N]              Search features by name/description
-  info <id>                          Show feature details and options
-  add <id> <profile> [--scope S]     Add feature to a profile
-  remove <id> <profile> [--scope S]  Remove feature from a profile
+featureCmd
+  .command("info <id>")
+  .description("Show feature details and options")
+  .action(async (id) => {
+    await featureInfo(id);
+  });
 
-Scope: user or project (app is read-only). Prompts if not specified.
+featureCmd
+  .command("add <id> <profile>")
+  .description("Add feature to a profile")
+  .option("--scope <scope>", "Scope (user or project)")
+  .action(async (id, profile, opts) => {
+    const scope = opts.scope || (await promptScope());
+    featureAdd(id, profile, scope);
+  });
 
-Examples:
-  claudeman feature search go
-  claudeman feature info ghcr.io/devcontainers/features/go:1
-  claudeman feature add ghcr.io/devcontainers/features/rust:1 myprofile
-  claudeman feature add ghcr.io/devcontainers/features/go:1 dev --scope project
-`);
-}
-
-export async function featureCommand(args) {
-  const subCmd = args[1];
-  if (!subCmd || subCmd === "-h" || subCmd === "--help") {
-    featureHelp();
-  } else if (subCmd === "search" && args[2]) {
-    let limit = 30;
-    let queryParts = [];
-    for (let i = 2; i < args.length; i++) {
-      if (args[i] === "-n" && args[i + 1]) {
-        limit = parseInt(args[i + 1], 10) || 30;
-        i++;
-      } else if (!args[i].startsWith("-")) {
-        queryParts.push(args[i]);
-      }
-    }
-    await featureSearch(queryParts.join(" "), limit);
-  } else if (subCmd === "info" && args[2]) {
-    await featureInfo(args.slice(2).join(" "));
-  } else if (subCmd === "add" && args[2] && args[3]) {
-    const featureId = args[2];
-    const profileName = args[3];
-    const scopeIdx = args.indexOf("--scope");
-    const scope =
-      scopeIdx !== -1 && args[scopeIdx + 1]
-        ? args[scopeIdx + 1]
-        : await promptScope();
-    featureAdd(featureId, profileName, scope);
-  } else if (subCmd === "remove" && args[2] && args[3]) {
-    const featureId = args[2];
-    const profileName = args[3];
-    const scopeIdx = args.indexOf("--scope");
-    const scope =
-      scopeIdx !== -1 && args[scopeIdx + 1]
-        ? args[scopeIdx + 1]
-        : await promptScope();
-    featureRemove(featureId, profileName, scope);
-  } else {
-    featureHelp();
-  }
-}
+featureCmd
+  .command("remove <id> <profile>")
+  .description("Remove feature from a profile")
+  .option("--scope <scope>", "Scope (user or project)")
+  .action(async (id, profile, opts) => {
+    const scope = opts.scope || (await promptScope());
+    featureRemove(id, profile, scope);
+  });

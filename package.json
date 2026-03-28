@@ -1,11 +1,14 @@
 {
+  "name": "claudeman",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@devcontainers/cli": "^0.84.0"
+    "@devcontainers/cli": "^0.84.0",
+    "commander": "^14.0.3"
   },
   "devDependencies": {
     "execa": "^9.6.1",

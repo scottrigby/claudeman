@@ -1,3 +1,4 @@
+import { Command } from "commander";
 import fs from "fs";
 import {
   APP_PROFILES_DIR,
@@ -118,58 +119,44 @@ function profileCreate(name, scope, description = "") {
   console.log(`Created profile: ${profilePath}`);
 }
 
-function profileHelp() {
-  console.log(`claudeman profile - Manage profiles (feature collections)
+export const profileCmd = new Command("profile").description(
+  "Manage profiles (feature collections)",
+);
 
-Usage: claudeman profile <subcommand> [options]
-
-Subcommands:
-  list                           List all profiles with scopes
-  info <name>                    Show profile details and features
-  create <name> [--scope S]      Create a new empty profile
-  delete <name> --scope S        Delete a profile (requires explicit scope)
-
-Scope: user or project (app is read-only). Prompts if not specified.
-
-Profile Scopes (more specific wins):
-  app      Built-in profiles (${APP_PROFILES_DIR})
-  user     User profiles (${USER_PROFILES_DIR})
-  project  Project profiles (${PROJECT_PROFILES_DIR})
-
-Examples:
-  claudeman profile list
-  claudeman profile info go
-  claudeman profile create myprofile --scope project
-`);
-}
-
-export async function profileCommand(args) {
-  const subCmd = args[1];
-  if (!subCmd || subCmd === "-h" || subCmd === "--help") {
-    profileHelp();
-  } else if (subCmd === "list") {
+profileCmd
+  .command("list")
+  .description("List all profiles with scopes")
+  .action(() => {
     profileList();
-  } else if (subCmd === "info" && args[2]) {
-    profileInfo(args[2]);
-  } else if (subCmd === "create" && args[2]) {
-    const name = args[2];
-    const scopeIdx = args.indexOf("--scope");
-    const scope =
-      scopeIdx !== -1 && args[scopeIdx + 1]
-        ? args[scopeIdx + 1]
-        : await promptScope();
-    const descIdx = args.indexOf("--description");
-    const description =
-      descIdx !== -1 && args[descIdx + 1] ? args[descIdx + 1] : "";
-    profileCreate(name, scope, description);
-  } else if (subCmd === "delete" && args[2]) {
-    const name = args[2];
-    const scopeIdx = args.indexOf("--scope");
-    if (scopeIdx === -1 || !args[scopeIdx + 1]) {
+  });
+
+profileCmd
+  .command("info <name>")
+  .description("Show profile details and features")
+  .action((name) => {
+    profileInfo(name);
+  });
+
+profileCmd
+  .command("create <name>")
+  .description("Create a new empty profile")
+  .option("--scope <scope>", "Scope (user or project)")
+  .option("--description <desc>", "Profile description", "")
+  .action(async (name, opts) => {
+    const scope = opts.scope || (await promptScope());
+    profileCreate(name, scope, opts.description);
+  });
+
+profileCmd
+  .command("delete <name>")
+  .description("Delete a profile (requires explicit scope)")
+  .option("--scope <scope>", "Scope (user or project)")
+  .action((name, opts) => {
+    if (!opts.scope) {
       console.error("--scope is required for delete (to prevent accidents)");
       process.exit(1);
     }
-    const scope = args[scopeIdx + 1];
+    const scope = opts.scope;
     if (scope === "app") {
       console.error("Cannot delete profiles in app scope (read-only)");
       process.exit(1);
@@ -181,7 +168,4 @@ export async function profileCommand(args) {
     }
     fs.unlinkSync(profilePath);
     console.log(`Deleted: ${profilePath}`);
-  } else {
-    profileHelp();
-  }
-}
+  });

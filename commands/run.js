@@ -1,3 +1,4 @@
+import { Command } from "commander";
 import { execSync, spawn } from "child_process";
 import fs from "fs";
 import path from "path";
@@ -279,51 +280,23 @@ async function runDevcontainer(
   }
 }
 
-export async function runCommand(args) {
-  let profileName = "minimal";
-  let workspaceFolder = process.cwd();
-  let extraDomains = [];
-  let devcontainerDir = null;
-  const ddIdx = args.indexOf("--");
-  const claudeExtraArgs = ddIdx !== -1 ? args.slice(ddIdx + 1) : [];
-  const runArgs = ddIdx !== -1 ? args.slice(0, ddIdx) : args;
-  for (const arg of runArgs) {
-    if (arg.startsWith("--profile=")) {
-      profileName = arg.split("=")[1];
-    } else if (arg.startsWith("--workspace=")) {
-      workspaceFolder = arg.split("=")[1];
-    } else if (arg.startsWith("--extra-domains=")) {
-      extraDomains = arg.split("=")[1].split(",").filter(Boolean);
-    } else if (arg.startsWith("--devcontainer-dir=")) {
-      devcontainerDir = arg.split("=")[1];
-    }
-  }
-  if (runArgs.includes("-h") || runArgs.includes("--help")) {
-    console.log(`claudeman run - Start devcontainer, run Claude, stop on exit
-
-Usage: claudeman run [options] [-- <claude-flags>]
-
-Lifecycle:
-  1. Builds/starts devcontainer with profile features
-  2. Runs Claude Code inside the container
-  3. Stops and removes container on exit (Ctrl+C or claude exit)
-
-Options:
-  --profile=<name>            Profile to use (default: minimal)
-  --workspace=<path>          Workspace folder (default: current directory)
-  --extra-domains=<d1,d2,...> Allow extra domains through the container firewall
-  --devcontainer-dir=<path>   Use local devcontainer files instead of fetching upstream
-
-  --                          Pass remaining flags directly to the claude command
-
-Examples:
-  claudeman run --profile=go
-  claudeman run --profile=full --workspace=/path/to/project
-  claudeman run --extra-domains=proxy.golang.org,sum.golang.org
-  claudeman run --devcontainer-dir=./path/to/.devcontainer
-  claudeman run -- --plugin-dir /home/node/.claude/claudeman/plugins/ask-questions
-`);
-  } else {
+export const runCmd = new Command("run")
+  .description("Start Claude in a devcontainer (stops on exit)")
+  .passThroughOptions()
+  .option("--profile <name>", "Profile to use", "minimal")
+  .option("--workspace <path>", "Workspace folder")
+  .option(
+    "--extra-domains <domains>",
+    "Extra firewall domains (comma-separated)",
+    (v) => v.split(",").filter(Boolean),
+  )
+  .option("--devcontainer-dir <path>", "Local devcontainer files")
+  .action(async (opts, cmd) => {
+    const profileName = opts.profile;
+    const workspaceFolder = opts.workspace || process.cwd();
+    const extraDomains = opts.extraDomains || [];
+    const devcontainerDir = opts.devcontainerDir || null;
+    const claudeExtraArgs = cmd.args;
     await runDevcontainer(
       profileName,
       workspaceFolder,
@@ -331,5 +304,4 @@ Examples:
       extraDomains,
       devcontainerDir,
     );
-  }
-}
+  });

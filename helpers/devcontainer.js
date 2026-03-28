@@ -1,5 +1,6 @@
 import https from "https";
 import { execSync } from "child_process";
+import { VERSION } from "./settings.js";
 
 export function fetchUrl(url) {
   return new Promise((resolve, reject) => {
@@ -8,7 +9,7 @@ export function fetchUrl(url) {
       hostname: urlObj.hostname,
       path: urlObj.pathname + urlObj.search,
       headers: {
-        "User-Agent": "claudeman/1.0",
+        "User-Agent": `claudeman/${VERSION}`,
         Accept: "application/json, text/plain, */*",
       },
     };
