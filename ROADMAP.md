@@ -25,6 +25,20 @@ Future enhancement ideas for claudeman. These are organized by category, not pri
       once upstream PR [#40322](https://github.com/anthropics/claude-code/pull/40322)
       merges (hybrid firewall with `WHITELIST_DOMAINS`).
 
+---
+
+## Hooks
+
+- [ ] **`claudeman hook` command** — manage hooks in profiles, similar to
+      `claudeman domain` and `claudeman feature`:
+  - `hook add <hookType> <matcher> <command> <profile> [--scope S]`
+  - `hook remove <hookType> <matcher> <command> <profile> [--scope S]`
+  - `hook list [profile]` — list hooks from all profiles or one
+  - Hooks are stored in the profile JSON `hooks` field
+  - Merged into `.claude/settings.json` at runtime, removed on exit
+
+---
+
 ## Init / Cleanup
 
 ### `init` (refactor)
@@ -36,8 +50,8 @@ Future enhancement ideas for claudeman. These are organized by category, not pri
 ### `cleanup` (new command)
 
 - [ ] `claudeman cleanup` — inverse of `claudeman init`; removes hooks that
-      init wrote from `.claude/settings.json` using the same merge-hooks library
-      (re-merge with the v1 hooks omitted, preserving any user-added hooks)
+      init wrote from `.claude/settings.json` using `removeHooks` from the
+      merge-hooks library (surgically removes matching hooks by type+command)
 - [ ] Optionally accept `--hooks=TYPE,...|all` to remove a subset
 - [ ] Prompt y/N before writing (skip with `-y`)
 
@@ -81,9 +95,6 @@ Future enhancement ideas for claudeman. These are organized by category, not pri
 
 ### Open Questions
 
-- [ ] Should profiles optionally contain hook definitions?
-  - Would allow profiles to bundle both features and Claude configuration
-  - Example: a "python-strict" profile with linting hooks
 - [ ] Should profiles support agent definitions?
 - [ ] Should profiles support skills definitions?
       (could use `npx skills add <url> --skill <name>` to install from profile)
