@@ -237,15 +237,15 @@ For detailed information about how claudeman works, including the notification s
 
 ### Breaking Changes
 
-| v1                            | v2                                                                                                                                           |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `claudeman run --deps=go`     | `claudeman run --profile=go`                                                                                                                 |
-| `claudeman run --hooks=X`     | Manage hooks manually (see below); `q-enforce` replaced by [claude-ask-questions](https://github.com/scottrigby/claude-ask-questions) plugin |
-| `claudeman deps`              | `claudeman feature search`                                                                                                                   |
-| `claudeman hooks`             | Removed (hooks via `init` only)                                                                                                              |
-| `.cf` Containerfile fragments | Devcontainer features                                                                                                                        |
-| `~/.config/claudeman/deps/`   | `~/.config/claudeman/profiles/`                                                                                                              |
-| `~/.config/claudeman/hooks/`  | No longer used                                                                                                                               |
+| v1                            | v2                                                                                                                                                                           |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claudeman run --deps=go`     | `claudeman run --profile=go`                                                                                                                                                 |
+| `claudeman run --hooks=X`     | Hooks are bundled in profiles (e.g., `go` profile includes gofmt); `q-enforce` replaced by [claude-ask-questions](https://github.com/scottrigby/claude-ask-questions) plugin |
+| `claudeman deps`              | `claudeman feature search`                                                                                                                                                   |
+| `claudeman hooks`             | Hooks bundled in profiles; notification hooks via `init`                                                                                                                     |
+| `.cf` Containerfile fragments | Devcontainer features                                                                                                                                                        |
+| `~/.config/claudeman/deps/`   | `~/.config/claudeman/profiles/`                                                                                                                                              |
+| `~/.config/claudeman/hooks/`  | No longer used                                                                                                                                                               |
 
 ### Migration Steps
 

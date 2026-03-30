@@ -25,8 +25,6 @@ Future enhancement ideas for claudeman. These are organized by category, not pri
       once upstream PR [#40322](https://github.com/anthropics/claude-code/pull/40322)
       merges (hybrid firewall with `WHITELIST_DOMAINS`).
 
----
-
 ## Init / Cleanup
 
 ### `init` (refactor)

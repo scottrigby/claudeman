@@ -32,6 +32,7 @@ import {
   classifyHookEntries,
   loadConversions,
   loadPluginReplacements,
+  loadProfileReplacements,
   loadV1DepContents,
   isAppDefinedDep,
 } from "../lib/migrate.js";
@@ -68,6 +69,8 @@ const conversions = () =>
   loadConversions(path.join(SCRIPT_DIR, "migrate", "v1", "hooks.json"));
 const pluginReplacements = () =>
   loadPluginReplacements(path.join(SCRIPT_DIR, "migrate", "v1", "hooks.json"));
+const profileReplacements = () =>
+  loadProfileReplacements(path.join(SCRIPT_DIR, "migrate", "v1", "hooks.json"));
 
 // Collect matching config files across all v1 hook config dirs (project + user).
 function findAllMatchingConfigFiles(hookEntries) {
@@ -173,6 +176,7 @@ async function migrateConvertV1Hooks(flags) {
   const toV2Command = conversions();
   const appCmds = appDefinedCmds(flags.hooks);
   const pluginMap = pluginReplacements();
+  const profileMap = profileReplacements();
   const scopeResults = scanV1HookScopes(flags);
 
   if (scopeResults.length === 0) {
@@ -209,6 +213,14 @@ async function migrateConvertV1Hooks(flags) {
       );
       for (const { hook, v1File } of appNoV2) {
         console.log(`  - ${hook.command}`);
+        const profileReplacement = profileMap.get(v1File);
+        if (profileReplacement) {
+          console.log(`    → ${profileReplacement.description}`);
+          console.log(
+            `    Run: claudeman run --profile=${profileReplacement.profile}`,
+          );
+          continue;
+        }
         const plugin = pluginMap.get(v1File);
         if (plugin) {
           console.log(

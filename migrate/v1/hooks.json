@@ -1,6 +1,12 @@
 {
   "description": "V1 hook command signatures and their v2 equivalents",
   "signatures": ["claudeman/dedup.js", "claudeman/notify.js"],
+  "profileReplacements": {
+    "gofmt": {
+      "profile": "go",
+      "description": "gofmt and goimports hooks are now bundled in the go profile"
+    }
+  },
   "pluginReplacements": {
     "q-enforce": {
       "name": "claude-ask-questions",
