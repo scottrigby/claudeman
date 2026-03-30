@@ -160,4 +160,37 @@ describe("profile commands", () => {
       expect(result.stderr).toContain("read-only");
     });
   });
+
+  describe("profile hooks display", () => {
+    it("shows hooks in profile info", async () => {
+      // Create a profile with hooks
+      await execa(
+        CLI,
+        ["profile", "create", "hooktest", "--scope", "project"],
+        { cwd: fixture.dir },
+      );
+      const profilePath = path.join(
+        fixture.dir,
+        ".claude/claudeman/profiles/hooktest.json",
+      );
+      const profile = JSON.parse(fs.readFileSync(profilePath, "utf8"));
+      profile.hooks = {
+        PostToolUse: [
+          {
+            matcher: "Write|Edit",
+            hooks: [{ type: "command", command: "echo test" }],
+          },
+        ],
+      };
+      fs.writeFileSync(profilePath, JSON.stringify(profile, null, 2));
+
+      const { stdout } = await execa(CLI, ["profile", "info", "hooktest"], {
+        cwd: fixture.dir,
+      });
+
+      expect(stdout).toContain("Hooks (1 event type(s))");
+      expect(stdout).toContain("PostToolUse [Write|Edit]");
+      expect(stdout).toContain("echo test");
+    });
+  });
 });

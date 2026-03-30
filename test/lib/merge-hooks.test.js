@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeHooks } from "../../lib/merge-hooks.js";
+import { mergeHooks, removeHooks } from "../../lib/merge-hooks.js";
 
 describe("mergeHooks", () => {
   it("merges hooks into empty settings", () => {
@@ -141,5 +141,115 @@ describe("mergeHooks", () => {
     const result = mergeHooks(userSettings, newHooks);
 
     expect(result.hooks.Stop[0].hooks[0].command).toBe("keep");
+  });
+});
+
+describe("removeHooks", () => {
+  it("removes matching hooks by type+command", () => {
+    const settings = {
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: "Write|Edit",
+            hooks: [
+              { type: "command", command: "gofmt -w" },
+              { type: "command", command: "echo keep" },
+            ],
+          },
+        ],
+      },
+    };
+    const toRemove = {
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: "Write|Edit",
+            hooks: [{ type: "command", command: "gofmt -w" }],
+          },
+        ],
+      },
+    };
+    const result = removeHooks(settings, toRemove);
+    expect(result.hooks.PostToolUse).toHaveLength(1);
+    expect(result.hooks.PostToolUse[0].hooks).toHaveLength(1);
+    expect(result.hooks.PostToolUse[0].hooks[0].command).toBe("echo keep");
+  });
+
+  it("removes empty hook types and hooks object", () => {
+    const settings = {
+      other: "preserved",
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: "Write",
+            hooks: [{ type: "command", command: "gofmt -w" }],
+          },
+        ],
+      },
+    };
+    const toRemove = {
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: "Write",
+            hooks: [{ type: "command", command: "gofmt -w" }],
+          },
+        ],
+      },
+    };
+    const result = removeHooks(settings, toRemove);
+    expect(result.hooks).toBeUndefined();
+    expect(result.other).toBe("preserved");
+  });
+
+  it("preserves unrelated hook types", () => {
+    const settings = {
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: "Write",
+            hooks: [{ type: "command", command: "gofmt -w" }],
+          },
+        ],
+        Stop: [
+          {
+            hooks: [{ type: "command", command: "notify done" }],
+          },
+        ],
+      },
+    };
+    const toRemove = {
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: "Write",
+            hooks: [{ type: "command", command: "gofmt -w" }],
+          },
+        ],
+      },
+    };
+    const result = removeHooks(settings, toRemove);
+    expect(result.hooks.PostToolUse).toBeUndefined();
+    expect(result.hooks.Stop).toHaveLength(1);
+  });
+
+  it("is a no-op when hooks don't match", () => {
+    const settings = {
+      hooks: {
+        Stop: [{ hooks: [{ type: "command", command: "notify" }] }],
+      },
+    };
+    const toRemove = {
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: "Write",
+            hooks: [{ type: "command", command: "gofmt -w" }],
+          },
+        ],
+      },
+    };
+    const result = removeHooks(settings, toRemove);
+    expect(result.hooks.Stop).toHaveLength(1);
   });
 });

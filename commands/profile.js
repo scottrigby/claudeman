@@ -93,6 +93,22 @@ function profileInfo(name) {
       console.log(`  ${envVar} → .claude/claudeman/cache/${subdir}`);
     }
   }
+
+  const hooks = profile.hooks || {};
+  const hookTypes = Object.keys(hooks);
+  if (hookTypes.length > 0) {
+    console.log(`\nHooks (${hookTypes.length} event type(s)):`);
+    for (const hookType of hookTypes) {
+      for (const entry of hooks[hookType]) {
+        const matcher = entry.matcher || "(all)";
+        const cmds = (entry.hooks || [])
+          .filter((h) => h.type === "command")
+          .map((h) => h.command);
+        console.log(`  ${hookType} [${matcher}]:`);
+        for (const cmd of cmds) console.log(`    ${cmd}`);
+      }
+    }
+  }
 }
 
 function profileCreate(name, scope, description = "") {

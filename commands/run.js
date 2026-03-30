@@ -14,6 +14,7 @@ import {
   getAllProfiles,
 } from "../helpers/settings.js";
 import { fetchUrl, getTerminalId } from "../helpers/devcontainer.js";
+import { mergeHooks, removeHooks } from "../lib/merge-hooks.js";
 
 async function runDevcontainer(
   profileName,
@@ -47,9 +48,21 @@ async function runDevcontainer(
 
   let containerId = null;
   let devcontainerDir = null;
+  let injectedHooks = null; // profile hooks to remove on exit
+  let settingsPath = null;
 
   // Cleanup function
   const cleanup = () => {
+    // Remove profile-injected hooks from settings.json
+    if (injectedHooks && settingsPath && fs.existsSync(settingsPath)) {
+      try {
+        const current = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+        const cleaned = removeHooks(current, { hooks: injectedHooks });
+        fs.writeFileSync(settingsPath, JSON.stringify(cleaned, null, 2));
+      } catch {
+        // Best effort — if this fails, hooks persist but are non-blocking
+      }
+    }
     if (containerId && CONTAINER_RUNTIME) {
       console.log("\nStopping container...");
       try {
@@ -115,6 +128,22 @@ async function runDevcontainer(
     const historyFile = path.join(claudeDir, ".bash_history");
     if (!fs.existsSync(historyFile)) {
       fs.writeFileSync(historyFile, "");
+    }
+
+    // Merge profile hooks into project-scope settings.json (removed on exit)
+    if (profile.hooks) {
+      settingsPath = path.join(claudeDir, "settings.json");
+      injectedHooks = profile.hooks;
+      let settings = {};
+      if (fs.existsSync(settingsPath)) {
+        try {
+          settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+        } catch {
+          // Invalid JSON, start fresh
+        }
+      }
+      const merged = mergeHooks(settings, { hooks: profile.hooks });
+      fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2));
     }
 
     // Copy notify to .claude/claudeman/bin/ for use inside container
