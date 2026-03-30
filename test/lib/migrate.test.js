@@ -68,8 +68,8 @@ describe("parseMigrateFlags", () => {
     expect(parseMigrateFlags(["--scope=project"]).scope).toBe("project");
   });
 
-  it("--scope=user", () => {
-    expect(parseMigrateFlags(["--scope=user"]).scope).toBe("user");
+  it("--scope=global", () => {
+    expect(parseMigrateFlags(["--scope=global"]).scope).toBe("global");
   });
 
   it("--hooks=q-notify,prettier parses to array", () => {
@@ -355,12 +355,12 @@ describe("loadSettings / saveSettings", () => {
 // ============================================================================
 
 describe("getV1HookConfigDirs", () => {
-  it("returns both project and user dirs for scope=all", () => {
+  it("returns both project and global dirs for scope=all", () => {
     const dirs = getV1HookConfigDirs("all", "/fake/cwd");
     expect(dirs).toHaveLength(2);
     const scopes = dirs.map((d) => d.scope);
     expect(scopes).toContain("project");
-    expect(scopes).toContain("user");
+    expect(scopes).toContain("global");
   });
 
   it("project dir is under cwd/.claude/claudeman/hooks", () => {
@@ -369,10 +369,10 @@ describe("getV1HookConfigDirs", () => {
     expect(dirs[0].dir).toBe("/my/project/.claude/claudeman/hooks");
   });
 
-  it("returns only user dir for scope=user", () => {
-    const dirs = getV1HookConfigDirs("user", "/fake/cwd");
+  it("returns only global dir for scope=global", () => {
+    const dirs = getV1HookConfigDirs("global", "/fake/cwd");
     expect(dirs).toHaveLength(1);
-    expect(dirs[0].scope).toBe("user");
+    expect(dirs[0].scope).toBe("global");
   });
 
   it("returns only project dir for scope=project", () => {

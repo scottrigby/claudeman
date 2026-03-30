@@ -2,7 +2,7 @@ import { Command } from "commander";
 import fs from "fs";
 import {
   APP_PROFILES_DIR,
-  USER_PROFILES_DIR,
+  GLOBAL_PROFILES_DIR,
   PROJECT_PROFILES_DIR,
   getAllProfiles,
   getProfilePath,
@@ -140,7 +140,7 @@ profileCmd
 profileCmd
   .command("create <name>")
   .description("Create a new empty profile")
-  .option("--scope <scope>", "Scope (user or project)")
+  .option("--scope <scope>", "Scope (global or project)")
   .option("--description <desc>", "Profile description", "")
   .action(async (name, opts) => {
     const scope = opts.scope || (await promptScope());
@@ -150,7 +150,7 @@ profileCmd
 profileCmd
   .command("delete <name>")
   .description("Delete a profile (requires explicit scope)")
-  .option("--scope <scope>", "Scope (user or project)")
+  .option("--scope <scope>", "Scope (global or project)")
   .action((name, opts) => {
     if (!opts.scope) {
       console.error("--scope is required for delete (to prevent accidents)");

@@ -47,7 +47,7 @@ function parseList(value) {
     .filter(Boolean);
 }
 
-// Load v1 hook command sets from app scope plus all user/project scope config dirs.
+// Load v1 hook command sets from app scope plus all global/project scope config dirs.
 // Merges commands into a single Map so detection covers user-customized hooks too.
 function loadAllV1CommandSets(filter = null) {
   const sets = loadV1HookCommandSets(MIGRATE_V1_HOOKS_DIR, filter);
@@ -359,19 +359,19 @@ async function migrateConvertV1Deps(flags) {
           const { name, description, features } = mapping.createProfile;
           console.log(`\n${depName}: ${mapping.note}`);
 
-          const profilePath = getProfilePath(name, "user");
+          const profilePath = getProfilePath(name, "global");
           if (fs.existsSync(profilePath)) {
             console.log(
-              `  Profile '${name}' already exists (user scope), skipping`,
+              `  Profile '${name}' already exists (global scope), skipping`,
             );
             continue;
           }
 
           const confirmed =
             flags.yes ||
-            (await promptYN(`  Create '${name}' profile in user scope?`));
+            (await promptYN(`  Create '${name}' profile in global scope?`));
           if (confirmed) {
-            ensureProfileDir("user");
+            ensureProfileDir("global");
             fs.writeFileSync(
               profilePath,
               JSON.stringify({ name, description, features }, null, 2) + "\n",
@@ -520,7 +520,7 @@ export const migrateCmd = new Command("migrate").description(
 function addMigrateOptions(cmd) {
   return cmd
     .option("-y, --yes", "Skip all confirmation prompts")
-    .option("--scope <scope>", "Limit to scope (user|project|all)", "all");
+    .option("--scope <scope>", "Limit to scope (global|project|all)", "all");
 }
 
 addMigrateOptions(

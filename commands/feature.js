@@ -244,7 +244,7 @@ featureCmd
 featureCmd
   .command("add <id> <profile>")
   .description("Add feature to a profile")
-  .option("--scope <scope>", "Scope (user or project)")
+  .option("--scope <scope>", "Scope (global or project)")
   .action(async (id, profile, opts) => {
     const scope = opts.scope || (await promptScope());
     featureAdd(id, profile, scope);
@@ -253,7 +253,7 @@ featureCmd
 featureCmd
   .command("remove <id> <profile>")
   .description("Remove feature from a profile")
-  .option("--scope <scope>", "Scope (user or project)")
+  .option("--scope <scope>", "Scope (global or project)")
   .action(async (id, profile, opts) => {
     const scope = opts.scope || (await promptScope());
     featureRemove(id, profile, scope);

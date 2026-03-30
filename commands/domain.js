@@ -113,7 +113,7 @@ export const domainCmd = new Command("domain").description(
 domainCmd
   .command("add <domain> <profile>")
   .description("Allow a domain through the container firewall")
-  .option("--scope <scope>", "Scope (user or project)")
+  .option("--scope <scope>", "Scope (global or project)")
   .action(async (domain, profile, opts) => {
     const scope = opts.scope || (await promptScope());
     domainAdd(domain, profile, scope);
@@ -122,7 +122,7 @@ domainCmd
 domainCmd
   .command("remove <domain> <profile>")
   .description("Remove an allowed domain from a profile")
-  .option("--scope <scope>", "Scope (user or project)")
+  .option("--scope <scope>", "Scope (global or project)")
   .action(async (domain, profile, opts) => {
     const scope = opts.scope || (await promptScope());
     domainRemove(domain, profile, scope);

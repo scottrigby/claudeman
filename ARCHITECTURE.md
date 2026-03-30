@@ -71,25 +71,29 @@ claudeman run --profile=go
 
 **Why stop and remove on exit?** Clean slate each run. Container state (history, config) is preserved via bind mounts to `PWD/.claude/`, so stopping the container doesn't lose work.
 
-## Project Isolation
+## Project Isolation and Scoping
 
-Each project gets its own `.claude/` directory:
+Claude Code uses two directories inside the container:
 
-```
-myproject/
-├── .claude/
-│   ├── .bash_history     # Shell history
-│   ├── settings.json     # Claude settings
-│   └── projects/         # Project memory
-└── src/
-```
+- **Project scope** (`/workspace/.claude/`) — settings, hooks, CLAUDE.md.
+  Available via the upstream `workspaceMount`. Persists on the host and is
+  version-controllable.
+- **User config** (`/workspace/.claude-config/`) — auth credentials, plugins
+  cache, session state, `.claude.json`. Bind-mounted from `PWD/.claude-config/`
+  on the host. Persists across sessions. Gitignored (contains credentials).
 
-**Bind mounts** (not named volumes):
+Claudeman sets `CLAUDE_CONFIG_DIR=/workspace/.claude-config` to separate user
+config from project config. Without this, both scopes would point to `.claude/`,
+causing plugins and hooks to appear duplicated.
 
-- `PWD/.claude` → `/home/node/.claude`
+**Mounts:**
+
+- `PWD/.claude-config/` → `/workspace/.claude-config/` (auth + plugins cache)
 - `PWD/.claude/.bash_history` → `/commandhistory/.bash_history`
+- `PWD/` → `/workspace/` (upstream workspaceMount — covers `.claude/` + source)
 
-This matches upstream claudeman behavior and allows `/resume` to work across container restarts.
+Note: claudeman's own `--scope global` (host `~/.config/claudeman/`) is for
+claudeman profiles, not Claude Code config. It persists on the host independently.
 
 ## Firewall Domains
 
@@ -140,13 +144,9 @@ variables to subdirectories under `.claude/claudeman/cache/`.
 
 **How it works:** At startup, claudeman creates each subdirectory on the host
 (under `PWD/.claude/claudeman/cache/`) and sets the corresponding env var in
-`remoteEnv`. Since `.claude/` is already bind-mounted, the cache directories are
-immediately available inside the container at
-`/home/node/.claude/claudeman/cache/`.
-
-**Why no extra mount?** The `.claude/` bind mount already covers the cache
-directory. Adding a separate mount would be redundant and fragile (mount ordering,
-nested bind mounts).
+`remoteEnv`. The upstream `workspaceMount` makes `PWD` available at `/workspace/`
+inside the container, so cache directories are accessible at
+`/workspace/.claude/claudeman/cache/`. No extra mount is needed.
 
 **Why `cacheEnv` in profiles, not inferred from features?** Each tool has its own
 env var conventions (`GOMODCACHE`, `PIP_CACHE_DIR`, `CARGO_HOME`, etc.). Inferring
@@ -215,10 +215,10 @@ so users aren't left with orphaned files and duplicate hooks.
 **Commands:**
 
 ```
-claudeman migrate remove-v1-hooks  [--hooks=NAME,...] [--scope=user|project|all] [-y]
-claudeman migrate remove-v1-deps   [--deps=NAME,...]  [--scope=user|project|all] [-y]
-claudeman migrate convert-v1-hooks [--hooks=NAME,...] [--scope=user|project|all] [-y]
-claudeman migrate convert-v1-deps  [--deps=NAME,...]  [--scope=user|project|all] [-y]
+claudeman migrate remove-v1-hooks  [--hooks=NAME,...] [--scope=global|project|all] [-y]
+claudeman migrate remove-v1-deps   [--deps=NAME,...]  [--scope=global|project|all] [-y]
+claudeman migrate convert-v1-hooks [--hooks=NAME,...] [--scope=global|project|all] [-y]
+claudeman migrate convert-v1-deps  [--deps=NAME,...]  [--scope=global|project|all] [-y]
 ```
 
 **V1 artifact locations:**
@@ -240,9 +240,9 @@ For deps, matching is by `.cf` file content (byte-for-byte).
 **Classification** uses the bundled app-scope fixtures as the source of truth:
 
 - **App-defined** — verbatim-matches a bundled `migrate/v1/` fixture; known migration path
-- **Custom** — matches only a user/project-scope file; no known migration path; listed for manual review
+- **Custom** — matches only a global/project-scope file; no known migration path; listed for manual review
 
-**Shared flags:** `--scope=user|project|all`, `--hooks`/`--deps` name filter, `-y` (skip prompts).
+**Shared flags:** `--scope=global|project|all`, `--hooks`/`--deps` name filter, `-y` (skip prompts).
 
 `remove-v1-hooks` and `convert-v1-hooks` both offer to delete matching hook config
 files from `.claude/claudeman/hooks/` and `~/.config/claudeman/hooks/` after acting
@@ -261,12 +261,12 @@ files get a preview and a `claudeman feature search` suggestion.
 
 **Why verbatim matching, not pattern/signature detection?**
 We only touch artifacts we can positively identify as a claudeman v1 hooks/deps config
-file in the app, user, and/or project scope. Signature-based detection (scanning for
+file in the app, global, and/or project scope. Signature-based detection (scanning for
 path strings like `claudeman/dedup.js`) would catch hand-modified variants we cannot
 safely auto-convert. Verbatim matching is conservative by design: if a hook command or
 dep file doesn't exactly match a known fixture, we treat it as custom and don't touch it.
 
-**Why load fixtures from three scopes (app + user + project)?**
+**Why load fixtures from three scopes (app + global + project)?**
 v1 installed hook config JSONs and dep `.cf` files into the user's machine
 (`~/.config/claudeman/`) and project (`.claude/claudeman/`). Relying only on the
 bundled app-scope fixtures for detection would miss these installed copies. Merging
@@ -327,7 +327,7 @@ claudeman
 
 **Command structure:** Follows [clig.dev](https://clig.dev/) guidelines. Top-level commands with subcommands are singular nouns (`feature`, `profile`). Standalone commands and subcommands are verbs (`run`, `listen`, `init`, `search`, `add`, `create`). Exception: `info` is a noun but reads naturally as shorthand for "show info".
 
-**Why `--scope` for modifications?** App-bundled profiles are read-only. Users can create/modify profiles in `user` or `project` scopes. Prompts interactively if not specified; `--scope project` allows team-shared profiles in version control.
+**Why `--scope` for modifications?** App-bundled profiles are read-only. Users can create/modify profiles in `global` or `project` scopes. Prompts interactively if not specified; `--scope project` allows team-shared profiles in version control.
 
 ## Dependencies
 

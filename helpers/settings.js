@@ -45,11 +45,11 @@ function detectContainerRuntime() {
 
 export const CONTAINER_RUNTIME = detectContainerRuntime();
 export const APP_PROFILES_DIR = path.join(SCRIPT_DIR, "profiles");
-const USER_CONFIG_DIR = path.join(
+const GLOBAL_CONFIG_DIR = path.join(
   process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"),
   "claudeman",
 );
-export const USER_PROFILES_DIR = path.join(USER_CONFIG_DIR, "profiles");
+export const GLOBAL_PROFILES_DIR = path.join(GLOBAL_CONFIG_DIR, "profiles");
 export const PROJECT_PROFILES_DIR = path.join(
   process.cwd(),
   ".claude",
@@ -87,7 +87,7 @@ export const FEATURE_INDEX_URL =
 export function getProfileDirs() {
   return [
     { scope: "app", dir: APP_PROFILES_DIR },
-    { scope: "user", dir: USER_PROFILES_DIR },
+    { scope: "global", dir: GLOBAL_PROFILES_DIR },
     { scope: "project", dir: PROJECT_PROFILES_DIR },
   ];
 }
@@ -126,7 +126,7 @@ export function loadProfile(name) {
 export function getProfilePath(name, scope) {
   const dirMap = {
     app: APP_PROFILES_DIR,
-    user: USER_PROFILES_DIR,
+    global: GLOBAL_PROFILES_DIR,
     project: PROJECT_PROFILES_DIR,
   };
   return path.join(dirMap[scope], `${name}.json`);
@@ -134,7 +134,7 @@ export function getProfilePath(name, scope) {
 
 export function ensureProfileDir(scope) {
   const dirMap = {
-    user: USER_PROFILES_DIR,
+    global: GLOBAL_PROFILES_DIR,
     project: PROJECT_PROFILES_DIR,
   };
   const dir = dirMap[scope];
@@ -151,7 +151,7 @@ export function promptScope() {
     });
     console.log("\nSelect scope:");
     console.log(
-      "  1) user    - Personal profile (~/.config/claudeman/profiles/)",
+      "  1) global  - Personal profile (~/.config/claudeman/profiles/)",
     );
     console.log("  2) project - Project profile (.claude/claudeman/profiles/)");
     rl.question("\nChoice [1-2]: ", (answer) => {
@@ -160,7 +160,7 @@ export function promptScope() {
       if (choice === "2" || choice.toLowerCase() === "project") {
         resolve("project");
       } else {
-        resolve("user");
+        resolve("global");
       }
     });
   });

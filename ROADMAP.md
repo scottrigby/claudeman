@@ -88,6 +88,12 @@ Future enhancement ideas for claudeman. These are organized by category, not pri
   - Example: a "python-strict" profile with linting hooks
 - [ ] Should profiles support agent definitions?
 - [ ] Should profiles support skills definitions?
+      (could use `npx skills add <url> --skill <name>` to install from profile)
+- [ ] Should profiles support plugin definitions? Claudeman could run
+      `devcontainer exec` to install marketplaces and plugins programmatically
+      at container startup. Note: Claude Code currently requires marketplace
+      info in both `settings.json` and `CLAUDE_CONFIG_DIR/plugins/known_marketplaces.json`
+      — project-scope plugin sharing has a DX gap upstream.
 
 ---
 

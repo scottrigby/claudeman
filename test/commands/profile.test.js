@@ -73,11 +73,11 @@ describe("profile commands", () => {
       expect(profile.features).toEqual({});
     });
 
-    it("creates profile in user scope", async () => {
+    it("creates profile in global scope", async () => {
       const configDir = path.join(fixture.dir, ".config");
       const { stdout } = await execa(
         CLI,
-        ["profile", "create", "userprof", "--scope", "user"],
+        ["profile", "create", "userprof", "--scope", "global"],
         {
           cwd: fixture.dir,
           env: { ...process.env, XDG_CONFIG_HOME: configDir },

@@ -91,6 +91,26 @@ async function runDevcontainer(
     if (!fs.existsSync(claudeDir)) {
       fs.mkdirSync(claudeDir, { recursive: true });
     }
+
+    // Ensure .claude-config directory exists for Claude's user config (auth,
+    // plugins cache, session state). Separate from .claude/ (project scope)
+    // to avoid scope collapse. Gitignored since it contains credentials.
+    const claudeConfigDir = path.join(workspaceFolder, ".claude-config");
+    if (!fs.existsSync(claudeConfigDir)) {
+      fs.mkdirSync(claudeConfigDir, { recursive: true });
+    }
+
+    // Add .claude-config to .gitignore if not already present
+    const gitignorePath = path.join(workspaceFolder, ".gitignore");
+    if (fs.existsSync(gitignorePath)) {
+      const gitignore = fs.readFileSync(gitignorePath, "utf8");
+      if (!gitignore.includes(".claude-config")) {
+        fs.appendFileSync(gitignorePath, "\n.claude-config\n");
+      }
+    } else {
+      fs.writeFileSync(gitignorePath, ".claude-config\n");
+    }
+
     // Ensure .bash_history exists (bind mount requires existing file)
     const historyFile = path.join(claudeDir, ".bash_history");
     if (!fs.existsSync(historyFile)) {
@@ -181,7 +201,7 @@ async function runDevcontainer(
       if (!fs.existsSync(hostDir)) {
         fs.mkdirSync(hostDir, { recursive: true });
       }
-      cacheEnvVars[envVar] = `/home/node/.claude/claudeman/cache/${subdir}`;
+      cacheEnvVars[envVar] = `/workspace/.claude/claudeman/cache/${subdir}`;
     }
 
     const config = {
@@ -191,16 +211,23 @@ async function runDevcontainer(
         ...(upstreamConfig.features || {}),
         ...(profile.features || {}),
       },
-      // Override mounts: use bind mounts from PWD/.claude for project isolation
-      // (instead of upstream named volumes which aren't project-specific)
+      // Point CLAUDE_CONFIG_DIR to .claude-config (auth, plugins cache, session
+      // state). Separate from .claude/ (project scope) to avoid scope collapse.
+      // See ARCHITECTURE.md for rationale.
+      containerEnv: {
+        ...(upstreamConfig.containerEnv || {}),
+        CLAUDE_CONFIG_DIR: "/workspace/.claude-config",
+      },
+      // Mount .claude-config for persistent auth + bash history.
+      // .claude/ is already available via upstream workspaceMount.
       mounts: [
-        `source=${claudeDir},target=/home/node/.claude,type=bind`,
+        `source=${claudeConfigDir},target=/workspace/.claude-config,type=bind`,
         `source=${historyFile},target=/commandhistory/.bash_history,type=bind`,
       ],
       // Add claudeman bin to PATH, cache env vars, and terminal info for notifications
       remoteEnv: {
         ...(upstreamConfig.remoteEnv || {}),
-        PATH: "${containerEnv:PATH}:/home/node/.claude/claudeman/bin",
+        PATH: "${containerEnv:PATH}:/workspace/.claude/claudeman/bin",
         ...cacheEnvVars,
         ...(termProgram && { TERM_PROGRAM: termProgram }),
         ...(termId && { TERM_ID: termId }),

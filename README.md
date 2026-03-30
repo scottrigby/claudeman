@@ -29,6 +29,15 @@ Claude Code's official devcontainer is actively evolving. This tool solves the m
 - Using the standard [devcontainer spec](https://containers.dev/) for customization
 - Leveraging 1000+ community features from containers.dev
 
+## Scope and Persistence
+
+Claudeman separates Claude's project config from user config:
+
+- **Project scope** (`.claude/`) — settings, hooks, CLAUDE.md. Persists and is version-controllable.
+- **User config** (`.claude-config/`) — auth credentials, plugins cache, session state. Persists across sessions but is gitignored (contains credentials).
+
+Both scopes persist across sessions. Use `--scope project` to share with collaborators (committed to git), or `--scope user` for personal config (gitignored via `.claude-config/`).
+
 ## Prerequisites
 
 - [Podman CLI](https://podman.io/) or Docker
