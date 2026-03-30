@@ -16,13 +16,6 @@ Future enhancement ideas for claudeman. These are organized by category, not pri
       `.claude/claudeman/hooks/` or `~/.config/claudeman/hooks/`) — print a
       one-time warning and suggest running `claudeman migrate`. Suppress with
       `--ignore-v1-artifacts` (or persist suppression in user config).
-- [ ] **Replace regex conversions with exact string lookup** —
-      `hooks.json` conversions use a regex `match` field to find v1 commands
-      and a `replace` field for the v2 equivalent. Since v1 hooks are already
-      detected via verbatim composite key matching (`hookType + matcher +
-command`), the regex is redundant and fragile. Replace `match`/`replace`
-      with an exact `from`/`to` string map keyed by the full v1 command, and
-      simplify `loadConversions()` in `lib/migrate.js` accordingly.
 
 ---
 

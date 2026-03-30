@@ -577,11 +577,10 @@ describe("loadConversions", () => {
 
   it("converts a q-notify dedup+notify command to v2", () => {
     const toV2 = loadConversions(MIGRATE_V1_HOOKS_JSON);
-    const sets = loadV1HookCommandSets(MIGRATE_V1_HOOKS_DIR);
-    const qnotifyCmd = [...sets.get("q-notify")].find((c) =>
-      c.includes("dedup.js"),
-    );
-    expect(toV2(qnotifyCmd)).toBe('notify question "Question ready"');
+    // Use the raw command string (as classifyHookEntries does), not the composite key
+    const cmd =
+      'node /home/node/.claude/claudeman/dedup.js "question-$TERM_ID" node /home/node/.claude/claudeman/notify.js -t question -m "Question ready"';
+    expect(toV2(cmd)).toBe('notify question "Question ready"');
   });
 
   it("returns null for an unrecognized command", () => {

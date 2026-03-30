@@ -8,26 +8,7 @@
       "description": "Enforce AskUserQuestion tool usage"
     }
   },
-  "conversions": [
-    {
-      "match": "claudeman/notify.js.*-t\\s+question",
-      "replace": "notify question \"Question ready\""
-    },
-    {
-      "match": "claudeman/notify.js.*-t\\s+complete",
-      "replace": "notify complete \"Task complete\""
-    },
-    {
-      "match": "claudeman/notify.js.*-t\\s+idle",
-      "replace": "notify idle \"Waiting for input\""
-    },
-    {
-      "match": "claudeman/dedup.js.*notify.js.*-t\\s+question",
-      "replace": "notify question \"Question ready\""
-    },
-    {
-      "match": "claudeman/dedup.js.*notify.js.*-t\\s+complete",
-      "replace": "notify complete \"Task complete\""
-    }
-  ]
+  "conversions": {
+    "node /home/node/.claude/claudeman/dedup.js \"question-$TERM_ID\" node /home/node/.claude/claudeman/notify.js -t question -m \"Question ready\"": "notify question \"Question ready\""
+  }
 }
