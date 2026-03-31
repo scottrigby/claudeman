@@ -73,6 +73,7 @@ claudeman run                                  # Minimal (no deps, no hooks)
 claudeman run --deps=go --hooks=prettier       # Go + prettier formatting
 claudeman run --hooks=prettier,questions       # Prettier + notifications
 claudeman run --deps=all --hooks=all           # Everything
+claudeman run -e GH_TOKEN=xxx                   # With env var
 claudeman run -- bash                          # Shell access
 claudeman listen                               # Start notification listener
 claudeman deps                                 # List available deps
@@ -85,12 +86,25 @@ claudeman hooks                                # List available hooks
 | --------------- | ------------------------------------------------------- |
 | `--deps=DEPS`   | Dependencies to install (go,python,rust,playwright,all) |
 | `--hooks=HOOKS` | Hooks to enable (prettier,gofmt,q-notify,q-enforce,all) |
+| `-e, --environment K=V` | Pass env var to container (repeatable) |
 
 ### Listen Options
 
 | Flag                | Description                   |
 | ------------------- | ----------------------------- |
 | `-p, --port <port>` | Listener port (default: 8080) |
+
+## Environment Variables
+
+Pass environment variables into the container with `-e` (repeatable):
+
+```bash
+claudeman run -e GH_TOKEN=ghp_xxx                    # Explicit value
+claudeman run -e GH_TOKEN                             # Pass through from host
+claudeman run -e GH_TOKEN=xxx -e NPM_TOKEN=yyy        # Multiple vars
+```
+
+This is useful for credentials needed inside the container (e.g., GitHub PATs for cloning private repos). Variables passed with `-e KEY` (no value) inherit the value from the host environment.
 
 ## Audio Notifications
 
