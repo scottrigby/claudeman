@@ -50,12 +50,18 @@ const GLOBAL_CONFIG_DIR = path.join(
   "claudeman",
 );
 export const GLOBAL_PROFILES_DIR = path.join(GLOBAL_CONFIG_DIR, "profiles");
-export const PROJECT_PROFILES_DIR = path.join(
-  process.cwd(),
-  ".claude",
-  "claudeman",
-  "profiles",
-);
+// Lazy — process.cwd() can fail if the directory was deleted (e.g., claudeman listen
+// run from a removed temp dir). Commands that need this will call it at use time.
+export function getProjectProfilesDir() {
+  return path.join(process.cwd(), ".claude", "claudeman", "profiles");
+}
+export const PROJECT_PROFILES_DIR = (() => {
+  try {
+    return getProjectProfilesDir();
+  } catch {
+    return null;
+  }
+})();
 
 // Upstream devcontainer URLs
 // TODO: Switch back once PR #40322 is merged:

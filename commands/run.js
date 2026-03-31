@@ -146,7 +146,9 @@ async function runDevcontainer(
       fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2));
     }
 
-    // Copy notify to .claude/claudeman/bin/ for use inside container
+    // Copy notify and browser-open to .claude/claudeman/bin/ for use inside container.
+    // browser-open is also installed as xdg-open so Claude Code's browser opens
+    // (auth, OAuth, etc.) are relayed to the host's default browser via the listener.
     const claudemanBinDir = path.join(claudeDir, "claudeman", "bin");
     if (!fs.existsSync(claudemanBinDir)) {
       fs.mkdirSync(claudemanBinDir, { recursive: true });
@@ -155,6 +157,11 @@ async function runDevcontainer(
     const notifyDst = path.join(claudemanBinDir, "notify");
     fs.copyFileSync(notifySrc, notifyDst);
     fs.chmodSync(notifyDst, 0o755);
+
+    const browserOpenSrc = path.join(SCRIPT_DIR, "lib", "browser-open.js");
+    const browserOpenDst = path.join(claudemanBinDir, "xdg-open");
+    fs.copyFileSync(browserOpenSrc, browserOpenDst);
+    fs.chmodSync(browserOpenDst, 0o755);
 
     // Create temp directory for devcontainer config (using --config flag)
     // Merge extra domains: host.containers.internal + profile + --extra-domains flag.
@@ -253,13 +260,14 @@ async function runDevcontainer(
         `source=${claudeConfigDir},target=/workspace/.claude-config,type=bind`,
         `source=${historyFile},target=/commandhistory/.bash_history,type=bind`,
       ],
-      // Add claudeman bin to PATH, cache env vars, and terminal info for notifications
+      // Add claudeman bin to PATH, cache env vars, terminal info, and container runtime
       remoteEnv: {
         ...(upstreamConfig.remoteEnv || {}),
         PATH: "${containerEnv:PATH}:/workspace/.claude/claudeman/bin",
         ...cacheEnvVars,
         ...(termProgram && { TERM_PROGRAM: termProgram }),
         ...(termId && { TERM_ID: termId }),
+        CLAUDEMAN_CONTAINER_RUNTIME: CONTAINER_RUNTIME,
       },
     };
 
