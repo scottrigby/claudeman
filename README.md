@@ -36,22 +36,27 @@ Claudeman solves this by:
 
 ## Installation
 
-Homebrew (recommended):
+Homebrew:
 
 ```bash
 brew install scottrigby/tap/claudeman
 ```
 
-Or clone this repository and symlink the script globally:
+One-liner install:
 
 ```bash
-git clone https://github.com/scottrigby/claudeman ~/claudeman
-sudo ln -s ~/claudeman/claudeman /usr/local/bin/claudeman
+curl -fsSL https://raw.githubusercontent.com/scottrigby/claudeman/main/install.sh | bash
 ```
 
-## Usage
+Install from a specific branch:
 
-From any project directory, simply run:
+```bash
+curl -fsSL https://raw.githubusercontent.com/scottrigby/claudeman/main/install.sh | BRANCH=my-branch bash
+```
+
+To update, re-run the install command.
+
+## Quick Start
 
 ```bash
 claudeman run
