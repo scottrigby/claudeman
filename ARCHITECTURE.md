@@ -183,25 +183,44 @@ Claude sessions inside containers need to notify the host when they need attenti
 2. Container sends TCP payload: `eventType\nTERM_PROGRAM\nTERM_ID\nmessage`
 3. Listener announces via `say`, shows dialog, focuses terminal tab on OK
 
-**Hook strategy:** We use `PreToolUse` with matcher `AskUserQuestion` instead of the `Notification` hook. This is a workaround for several upstream bugs:
+**Hook strategy:** Four hooks provide a hybrid notification approach:
 
-| Hook                               | Problem                                           | Issue                                                                              |
-| ---------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `Notification` (permission_prompt) | Fires ~25% of the time                            | [#9575](https://github.com/anthropics/claude-code/issues/9575) (closed, not fixed) |
-| `Notification` (idle_prompt)       | Fires after EVERY response, not just when waiting | [#12048](https://github.com/anthropics/claude-code/issues/12048)                   |
-| `Notification`                     | 10+ second delay                                  | [#5186](https://github.com/anthropics/claude-code/issues/5186)                     |
-| No `UserInputRequired` hook        | No way to detect when Claude needs user attention | [#10168](https://github.com/anthropics/claude-code/issues/10168)                   |
+| Hook            | Purpose                        | Matcher support | Filtering                                   |
+| --------------- | ------------------------------ | --------------- | ------------------------------------------- |
+| `TaskCompleted` | Precise task completion signal | No              | None needed — fires once per task           |
+| `Stop`          | Catch untracked completions    | No              | jq keyword filter on last_assistant_message |
+| `PreToolUse`    | Question detection             | Yes             | Matcher: `AskUserQuestion`                  |
+| `Notification`  | Idle/waiting detection         | Yes             | Matcher: `idle_prompt`                      |
 
-**Our workaround:** `PreToolUse` with matcher `AskUserQuestion` fires consistently and immediately when Claude asks a question. Combined with the reliable `Stop` hook for task completion, this covers the main notification use cases.
+- **`TaskCompleted`** fires once per `TaskUpdate(status=completed)`. Input includes
+  `task_subject`, `task_description`, `teammate_name`, `team_name`. This is the
+  precise completion signal for tracked work.
+- **`Stop`** fires on every response turn, so it requires keyword filtering in the
+  command itself (jq checks `last_assistant_message` for completion keywords). This
+  catches significant one-off responses that have no associated task. The `|| true`
+  suffix prevents errors when stopping with no text output.
+- **`PreToolUse`** with matcher `AskUserQuestion` fires consistently and immediately
+  when Claude asks a question.
+- **`Notification`** with matcher `idle_prompt` fires after Claude has been waiting
+  for user input for a threshold period while the window is not focused. The message
+  payload is always a static string — no dynamic content or session context. The
+  `notification_type` field works as a matcher, so the hook can scope to `idle_prompt`
+  without command-level filtering.
 
-**Track upstream:** If [#10168](https://github.com/anthropics/claude-code/issues/10168) is implemented, we can replace our PreToolUse workaround with a proper `UserInputRequired` hook.
+`TaskCompleted` and `Stop` do not support matchers — all filtering must be done
+in the hook command. `PreToolUse` and `Notification` support matchers natively.
 
-**Why this approach?** See [NOTIFICATION_ANALYSIS.md](./NOTIFICATION_ANALYSIS.md) for comparison with alternatives (devcontainers-notifier, node-notifier, etc.). Key advantages: terminal tab focusing, audio support, multi-session awareness.
+**Known `Notification` hook issues:**
 
-**Future improvements:**
+| Hook                               | Problem                | Issue                                                                              |
+| ---------------------------------- | ---------------------- | ---------------------------------------------------------------------------------- |
+| `Notification` (permission_prompt) | Fires ~25% of the time | [#9575](https://github.com/anthropics/claude-code/issues/9575) (closed, not fixed) |
+| `Notification`                     | 10+ second delay       | [#5186](https://github.com/anthropics/claude-code/issues/5186)                     |
 
-- Replace raw TCP with HTTP/JSON for easier debugging
-- Adopt upstream hooks when [#10168](https://github.com/anthropics/claude-code/issues/10168) is resolved
+The `idle_prompt` type is usable despite these issues — it fires reliably when
+the window is unfocused and Claude is waiting.
+
+**Why this approach?** See [NOTIFICATION_ANALYSIS.md](./NOTIFICATION_ANALYSIS.md) for comparison with alternatives (devcontainers-notifier, node-notifier, etc.). Key advantages: terminal tab focusing, audio support, multi-session awareness. See [ROADMAP.md](ROADMAP.md#notifications) for future improvements.
 
 ## Migration
 
@@ -321,6 +340,7 @@ claudeman
 │   ├── convert-v1-hooks       # Replace v1 hooks with v2 equivalents
 │   └── convert-v1-deps        # Map .cf deps to v2 profiles/features
 ├── init                       # Set up notification hooks + CLAUDE.md
+├── cleanup                    # Remove notification hooks + CLAUDE.md instructions
 ├── run --profile=<name>       # Start Claude, cleanup on exit
 └── listen [-p PORT]           # Start notification listener (host-side)
 ```

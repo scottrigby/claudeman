@@ -4,12 +4,22 @@ import path from "path";
 import { SCRIPT_DIR } from "../helpers/settings.js";
 import { mergeHooks } from "../lib/merge-hooks.js";
 
+function getClaudeDir(scope) {
+  if (scope === "project") return path.join(process.cwd(), ".claude");
+  return path.join(process.cwd(), ".claude-config");
+}
+
 export const initCmd = new Command("init")
   .description("Set up notification hooks and CLAUDE.md in current project")
   .option("--hooks", "Only install notification hooks")
   .option("--instructions", "Only install CLAUDE.md instructions")
+  .option(
+    "--scope <scope>",
+    "Scope: user (default, gitignored) or project (shared)",
+    "user",
+  )
   .action((opts) => {
-    const claudeDir = path.join(process.cwd(), ".claude");
+    const claudeDir = getClaudeDir(opts.scope);
     if (!fs.existsSync(claudeDir)) {
       fs.mkdirSync(claudeDir, { recursive: true });
     }
@@ -39,7 +49,13 @@ export const initCmd = new Command("init")
     }
 
     if (installInstructions) {
-      const claudeMdPath = path.join(claudeDir, "CLAUDE.md");
+      // CLAUDE.md always goes in .claude/ (project scope) since it's
+      // instructions for Claude, not user-specific config
+      const projectClaudeDir = path.join(process.cwd(), ".claude");
+      if (!fs.existsSync(projectClaudeDir)) {
+        fs.mkdirSync(projectClaudeDir, { recursive: true });
+      }
+      const claudeMdPath = path.join(projectClaudeDir, "CLAUDE.md");
       const sampleMd = fs.readFileSync(
         path.join(SCRIPT_DIR, "samples", "CLAUDE.md"),
         "utf8",

@@ -18,6 +18,7 @@ import { initCmd } from "./commands/init.js";
 import { runCmd } from "./commands/run.js";
 import { migrateCmd } from "./commands/migrate.js";
 import { listenCmd } from "./commands/listen.js";
+import { cleanupCmd } from "./commands/cleanup.js";
 
 const program = new Command();
 
@@ -34,6 +35,7 @@ program.addCommand(initCmd);
 program.addCommand(runCmd);
 program.addCommand(migrateCmd);
 program.addCommand(listenCmd);
+program.addCommand(cleanupCmd);
 
 program.parseAsync().catch((err) => {
   console.error(err.message);

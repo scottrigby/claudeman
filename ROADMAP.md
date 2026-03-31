@@ -41,23 +41,19 @@ Future enhancement ideas for claudeman. These are organized by category, not pri
 
 ## Init / Cleanup
 
-### `init` (refactor)
-
-- [ ] Refactor `claudeman init` to use the `merge-hooks` library (from
-      `migrate/v1/merge-hooks.js`) instead of any ad-hoc hook writing logic —
-      ensures init and migrate use identical merge/dedup semantics
-
-### `cleanup` (new command)
-
-- [ ] `claudeman cleanup` — inverse of `claudeman init`; removes hooks that
-      init wrote from `.claude/settings.json` using `removeHooks` from the
-      merge-hooks library (surgically removes matching hooks by type+command)
-- [ ] Optionally accept `--hooks=TYPE,...|all` to remove a subset
-- [ ] Prompt y/N before writing (skip with `-y`)
+- [ ] `cleanup --hooks=TYPE,...|all` — filter to remove a subset of hooks
 
 ---
 
 ## Notifications
+
+### Upstream
+
+- [ ] **Replace PreToolUse workaround with `UserInputRequired` hook** —
+      if [#10168](https://github.com/anthropics/claude-code/issues/10168) is
+      implemented upstream. See [ARCHITECTURE.md](ARCHITECTURE.md#notifications)
+      for current hook strategy.
+- [ ] Replace raw TCP with HTTP/JSON for easier debugging
 
 ### Event Types
 
