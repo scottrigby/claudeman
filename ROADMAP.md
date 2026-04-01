@@ -31,6 +31,9 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for design context.
 
 ## Notifications
 
+- [ ] `--listener-port` flag on `run` — set `CLAUDEMAN_LISTENER_PORT` in
+      `remoteEnv`. Update `notify.js` to read env var (browser-open.js
+      already does). No hook command changes needed.
 - [ ] `error` event type with distinct audio
 - [ ] Notification preferences: sound selection, per-type sound override,
       voice selection, bell/voice toggle, silent mode
@@ -58,6 +61,19 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for design context.
 - [ ] Scope prompt input validation (loop until valid answer)
 - [ ] Refactor `installPluginInContainer` to use `spawn` with args array instead of `execSync` string interpolation
 - [ ] `--dry-run` flag for migrate and init commands
+
+---
+
+## Documentation
+
+- [ ] `claudeman docs` command — auto-generate command reference from Commander
+      definitions (see [commander#756](https://github.com/tj/commander.js/issues/756))
+- [ ] `claudeman docs --append-file <path>` — append command docs to a markdown file
+- [ ] Documentation pages in `docs/` directory
+- [ ] GitHub Action to check CLI docs are up to date on PRs with command changes
+- [ ] Shell completion (bash/zsh/fish) — evaluate
+      [tabtab](https://github.com/mklabs/tabtab) or
+      [omelette](https://github.com/f/omelette) for Commander integration
 
 ---
 

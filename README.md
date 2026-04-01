@@ -22,26 +22,29 @@ See [Anthropic's devcontainer docs](https://docs.anthropic.com/en/docs/claude-co
 
 ## Why This Tool?
 
-Claude Code's official devcontainer is actively evolving. This tool solves the maintenance burden by:
+Claude Code's official devcontainer is actively evolving. Claudeman solves this by:
 
 - Fetching the latest upstream Anthropic .devcontainer directory fresh each run
-- Merging your profile's features on top
+- Merging your profile's features, hooks, domains, and caches on top
 - Using the standard [devcontainer spec](https://containers.dev/) for customization
 - Leveraging 1000+ community features from containers.dev
+- Audio notifications on the host when Claude finishes tasks or has questions
+- Per-project isolation with multiple Claude instances running simultaneously
+- Auto-focusing the correct terminal tab when a notification arrives
+- Persistent dependency caches across container restarts (Go modules, pip, cargo, npm) |
 
-## Scope and Persistence
+## Architecture
 
-Claudeman separates Claude's project config from user config:
+Claudeman runs Claude Code sessions in Podman (or Docker) containers, building on the standard [devcontainer spec](https://containers.dev/). It adds a concept of **profiles** — named configurations that bundle devcontainer features, firewall domains, dependency caches, and hooks. CLI commands manage profiles and their components (`feature`, `domain`, `profile`, `hook`). A single **listener** process runs on the host and serves all container sessions — handling audio notifications, dialog prompts, terminal tab focusing, and browser opens (including OAuth callback proxying for auth).
 
-- **Project scope** (`.claude/`) — settings, hooks, CLAUDE.md. Persists and is version-controllable.
-- **User config** (`.claude-config/`) — auth credentials, plugins cache, session state. Persists across sessions but is gitignored (contains credentials).
+For detailed design decisions, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
-Both scopes persist across sessions. Use `--scope project` to share with collaborators (committed to git), or `--scope user` for personal config (gitignored via `.claude-config/`).
-
-## Prerequisites
+## Requirements
 
 - [Podman CLI](https://podman.io/) or Docker
-- Node.js 18+
+- Node.js 18+ (for CLI and listener)
+- macOS (for audio notifications; optional)
+- Supported terminal: Ghostty 1.3.0+, Terminal.app, or iTerm2 (for tab focusing; optional)
 
 ## Installation
 
@@ -62,20 +65,44 @@ sudo ln -s ~/claudeman/claudeman /usr/local/bin/claudeman
 ## Quick Start
 
 ```bash
+# Start notification listener (keep running in a separate terminal tab)
+claudeman listen
+
 # Initialize hooks in your project
 claudeman init
 
-# List available profiles
-claudeman profile list
-
 # Run with a profile
 claudeman run --profile=go
-
-# Start notification listener (in another terminal)
-claudeman listen
 ```
 
+## Configuration
+
+Claudeman separates Claude's project config from user config:
+
+- **Project scope** (`.claude/`) — settings, hooks, CLAUDE.md. Persists and is version-controllable.
+- **User config** (`.claude-config/`) — auth credentials, plugins cache, session state. Persists across sessions but is gitignored (contains credentials).
+
+Both scopes persist across sessions. Use `--scope project` to share with collaborators (committed to git), or `--scope user` for personal config (gitignored via `.claude-config/`).
+
 ## Commands
+
+### Initialization
+
+```bash
+claudeman init                     # Set up hooks + CLAUDE.md in project
+claudeman init --scope project     # Write hooks to .claude/ (shared with team)
+claudeman cleanup                  # Remove notification hooks (inverse of init)
+```
+
+This creates notification hook configuration and a sample CLAUDE.md with project instructions.
+
+### Listener
+
+```bash
+claudeman listen                   # Start notification listener (keep running)
+```
+
+One listener serves all running claudeman sessions. Receives notifications and browser open requests, announces via audio, shows a dialog, and focuses the originating terminal tab on OK. Listens on port 8080 by default.
 
 ### Run
 
@@ -84,11 +111,12 @@ claudeman run                      # Run with default (minimal) profile
 claudeman run --profile=go         # Run with Go profile
 claudeman run --profile=full       # Run with all features
 claudeman run -- bash              # Shell access
+claudeman run -- --worktree feat   # Git worktree mode
 ```
 
 ### Profiles
 
-Profiles are named collections of devcontainer features:
+Profiles are named collections of devcontainer features, firewall domains, caches, and hooks.
 
 ```bash
 claudeman profile list             # List all profiles
@@ -97,14 +125,18 @@ claudeman profile create myprof    # Create new profile
 claudeman profile delete myprof    # Delete profile
 ```
 
+Profiles are loaded from three locations (more specific wins):
+
+1. **app** — Bundled in `profiles/` (read-only)
+2. **global** — `~/.config/claudeman/profiles/` (personal, all projects)
+3. **project** — `.claude/claudeman/profiles/` (shared with team)
+
 | Profile | Description      | Features                     |
 | ------- | ---------------- | ---------------------------- |
 | minimal | Claude Code only | -                            |
-| go      | Go development   | go + linters                 |
+| go      | Go development   | go + linters + gofmt hooks   |
 | web     | Web development  | playwright                   |
 | full    | Everything       | go, python, rust, playwright |
-
-> **Note on whitespace tools:** v1 included `whitespace-tools` (trailing space and EOF newline enforcement). claudeman v2 does not use them — current Claude models handle whitespace reliably. If you want them for other purposes, they are available as a standalone devcontainer feature: `claudeman feature add ghcr.io/scottrigby/whitespace-tools/whitespace-tools:1 <profile>`
 
 ### Features
 
@@ -136,7 +168,7 @@ One-off domains via flag:
 claudeman run --profile=go --extra-domains=example.com
 ```
 
-### Persistent Caches
+## Persistent Caches
 
 Build and dependency caches persist across container restarts via `.claude/claudeman/cache/`. Profiles declare `cacheEnv` to map environment variables to cache subdirectories:
 
@@ -150,81 +182,6 @@ Build and dependency caches persist across container restarts via `.claude/claud
 ```
 
 The bundled `go` and `full` profiles include cache settings for their respective tools. View a profile's cache config with `claudeman profile info <name>`.
-
-### Initialization
-
-```bash
-claudeman init                     # Set up hooks + CLAUDE.md in project
-```
-
-This creates `.claude/` directory with:
-
-- Hook configuration for notifications
-- Sample CLAUDE.md with project instructions
-
-### Notifications
-
-Optional notifications when Claude finishes tasks or asks questions:
-
-```bash
-# Terminal 1: Start listener
-claudeman listen
-
-# Terminal 2: Send notification (from container)
-notify completion "Task finished"
-notify question "Need clarification"
-```
-
-#### Supported Terminals
-
-| Terminal                        | Minimum Version | Notes                                                                                |
-| ------------------------------- | --------------- | ------------------------------------------------------------------------------------ |
-| [Ghostty](https://ghostty.org/) | 1.3.0+          | Requires [AppleScript support](https://ghostty.org/docs/install/release-notes/1-3-0) |
-| Terminal.app                    | Any             | Built-in macOS terminal                                                              |
-| [iTerm2](https://iterm2.com/)   | Any             | Popular third-party terminal                                                         |
-
-## Profile Scoping
-
-Profiles are loaded from three locations (more specific wins):
-
-1. **app** - Bundled in `profiles/` (read-only)
-2. **user** - `~/.config/claudeman/profiles/`
-3. **project** - `.claude/claudeman/profiles/`
-
-Create project-specific profiles:
-
-```bash
-mkdir -p .claude/claudeman/profiles
-claudeman profile create myprof --scope=project
-```
-
-## Creating Custom Profiles
-
-Add a JSON file to `~/.config/claudeman/profiles/`:
-
-```json
-{
-  "name": "myprofile",
-  "description": "My custom setup",
-  "features": {
-    "ghcr.io/devcontainers/features/go:1": {
-      "version": "latest"
-    },
-    "ghcr.io/devcontainers/features/python:1": {}
-  }
-}
-```
-
-## Requirements
-
-- [Podman CLI](https://podman.io/) or Docker
-- Node.js 18+ (for CLI and listener)
-- macOS (for audio notifications; optional)
-- Supported terminal: Ghostty 1.3.0+, Terminal.app, or iTerm2 (for tab focusing; optional)
-
-## Architecture
-
-For detailed information about how claudeman works, including the notification system, hook architecture, and profile management, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Migrating from v1
 
@@ -246,6 +203,8 @@ For detailed information about how claudeman works, including the notification s
 | `.cf` Containerfile fragments | Devcontainer features                                                                                                                                                        |
 | `~/.config/claudeman/deps/`   | `~/.config/claudeman/profiles/`                                                                                                                                              |
 | `~/.config/claudeman/hooks/`  | No longer used                                                                                                                                                               |
+
+> **Note on whitespace tools:** v1 included `whitespace-tools` (trailing space and EOF newline enforcement). claudeman v2 does not use them — current Claude models handle whitespace reliably. If you want them for other purposes, they are available as a standalone devcontainer feature: `claudeman feature add ghcr.io/scottrigby/whitespace-tools/whitespace-tools:1 <profile>`
 
 ### Migration Steps
 

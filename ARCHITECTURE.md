@@ -225,7 +225,7 @@ in the hook command. `PreToolUse` and `Notification` support matchers natively.
 The `idle_prompt` type is usable despite these issues — it fires reliably when
 the window is unfocused and Claude is waiting.
 
-**Why this approach?** See [NOTIFICATION_ANALYSIS.md](./NOTIFICATION_ANALYSIS.md) for comparison with alternatives (devcontainers-notifier, node-notifier, etc.). Key advantages: terminal tab focusing, audio support, multi-session awareness. See [ROADMAP.md](ROADMAP.md#notifications) for future improvements.
+**Why this approach?** Key advantages over alternatives (devcontainers-notifier, node-notifier, etc.): terminal tab focusing, audio support, multi-session awareness, no VS Code dependency. See [ROADMAP.md](ROADMAP.md#notifications) for future improvements.
 
 ## Migration
 
@@ -275,12 +275,6 @@ convertible (has a `migrate/v1/hooks.json` rule) vs no-v2-equivalent. `convert-v
 maps app-defined `.cf` files to v2 profiles via `migrate/v1/deps.json`; custom `.cf`
 files get a preview and a `claudeman feature search` suggestion.
 
-**Plugin installs from inside the container** must use the `url` source type with an explicit HTTPS URL in `marketplace.json`, not the `github` source type. The `github` type defaults to SSH (`git@github.com:...`), which fails because no GitHub SSH key is present in the container. The `url` type clones over HTTPS and requires no credentials for public repositories:
-
-```json
-{ "source": "url", "url": "https://github.com/owner/repo" }
-```
-
 ### Why
 
 **Why verbatim matching, not pattern/signature detection?**
@@ -321,34 +315,9 @@ verbatim matching) and test data. Using the same files for both guarantees
 the tests exercise exactly the detection logic used in production, with no
 risk of drift between "what we ship" and "what we test against".
 
-## Commands
+## Command Design
 
-```
-claudeman
-├── feature
-│   ├── search <query>         # Search containers.dev index
-│   ├── info <id>              # Show feature details
-│   ├── add <id> <profile>     # Add feature to profile
-│   └── remove <id> <profile>  # Remove feature from profile
-├── profile
-│   ├── list                   # Show all profiles with scopes
-│   ├── info <name>            # Show profile features and domains
-│   ├── create <name>          # Create new profile
-│   └── delete <name>          # Delete profile
-├── domain
-│   ├── add <domain> <profile> # Allow domain through container firewall
-│   ├── remove <domain> <profile>  # Remove allowed domain
-│   └── list [profile]         # List all allowed domains
-├── migrate                    # Automate v1 → v2 migration (run 'claudeman migrate -h')
-│   ├── remove-v1-hooks        # Remove v1 hooks from settings.json
-│   ├── remove-v1-deps         # Delete v1 .cf dep files
-│   ├── convert-v1-hooks       # Replace v1 hooks with v2 equivalents
-│   └── convert-v1-deps        # Map .cf deps to v2 profiles/features
-├── init                       # Set up notification hooks + CLAUDE.md
-├── cleanup                    # Remove notification hooks + CLAUDE.md instructions
-├── run --profile=<name>       # Start Claude, cleanup on exit
-└── listen [-p PORT]           # Start notification listener (host-side)
-```
+Run `claudeman -h` or `claudeman <command> -h` for full command reference.
 
 **Command structure:** Follows [clig.dev](https://clig.dev/) guidelines. Top-level commands with subcommands are singular nouns (`feature`, `profile`). Standalone commands and subcommands are verbs (`run`, `listen`, `init`, `search`, `add`, `create`). Exception: `info` is a noun but reads naturally as shorthand for "show info".
 
