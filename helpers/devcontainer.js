@@ -1,6 +1,9 @@
 import https from "https";
+import fs from "fs";
+import path from "path";
+import os from "os";
 import { execSync } from "child_process";
-import { VERSION } from "./settings.js";
+import { VERSION, PATCHES_DIR } from "./settings.js";
 
 export function fetchUrl(url) {
   return new Promise((resolve, reject) => {
@@ -55,4 +58,33 @@ export function getTerminalId() {
   } catch {
     return "";
   }
+}
+
+// Create a temp directory with devcontainer config files (Dockerfile,
+// init-firewall.sh, devcontainer.json). Returns { dir, configRaw }.
+// TODO: Switch to fetching from upstream once PR #40322 is merged:
+// export async function loadDevcontainerFiles() {
+//   console.log("Fetching upstream devcontainer config...");
+//   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "claudeman-devcontainer-"));
+//   const [dockerfile, firewall, configRaw] = await Promise.all([
+//     fetchUrl(UPSTREAM_DOCKERFILE),
+//     fetchUrl(UPSTREAM_FIREWALL),
+//     fetchUrl(UPSTREAM_DEVCONTAINER_JSON),
+//   ]);
+//   fs.writeFileSync(path.join(dir, "Dockerfile"), dockerfile);
+//   fs.writeFileSync(path.join(dir, "init-firewall.sh"), firewall);
+//   return { dir, configRaw };
+// }
+
+// Temporarily using local patched files (fork DMCA'd).
+export function loadDevcontainerFiles() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "claudeman-devcontainer-"));
+  for (const f of ["Dockerfile", "init-firewall.sh"]) {
+    fs.copyFileSync(path.join(PATCHES_DIR, f), path.join(dir, f));
+  }
+  const configRaw = fs.readFileSync(
+    path.join(PATCHES_DIR, "devcontainer.json"),
+    "utf8",
+  );
+  return { dir, configRaw };
 }

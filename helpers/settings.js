@@ -64,15 +64,17 @@ export const PROJECT_PROFILES_DIR = (() => {
 })();
 
 // Upstream devcontainer URLs
-// TODO: Switch back once PR #40322 is merged:
+// TODO: Switch back to fetching from upstream once PR #40322 is merged:
 // https://github.com/anthropics/claude-code/pull/40322
 // export const UPSTREAM_BASE =
 //   "https://raw.githubusercontent.com/anthropics/claude-code/main/.devcontainer";
-export const UPSTREAM_BASE =
-  "https://raw.githubusercontent.com/scottrigby/claude-code/feature/hybrid-domain-firewall-fixed/.devcontainer";
-export const UPSTREAM_DOCKERFILE = `${UPSTREAM_BASE}/Dockerfile`;
-export const UPSTREAM_FIREWALL = `${UPSTREAM_BASE}/init-firewall.sh`;
-export const UPSTREAM_DEVCONTAINER_JSON = `${UPSTREAM_BASE}/devcontainer.json`;
+// export const UPSTREAM_DOCKERFILE = `${UPSTREAM_BASE}/Dockerfile`;
+// export const UPSTREAM_FIREWALL = `${UPSTREAM_BASE}/init-firewall.sh`;
+// export const UPSTREAM_DEVCONTAINER_JSON = `${UPSTREAM_BASE}/devcontainer.json`;
+//
+// Temporarily using local patched files (fork was taken down by DMCA).
+// The patched files add hybrid static/dynamic firewall with WHITELIST_DOMAINS.
+export const PATCHES_DIR = path.join(SCRIPT_DIR, "patches", ".devcontainer");
 
 // Built-in domains allowed by the upstream init-firewall.sh
 export const BUILTIN_FIREWALL_DOMAINS = [

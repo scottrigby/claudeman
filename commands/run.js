@@ -7,13 +7,13 @@ import {
   SCRIPT_DIR,
   DEVCONTAINER_CLI,
   CONTAINER_RUNTIME,
-  UPSTREAM_DOCKERFILE,
-  UPSTREAM_FIREWALL,
-  UPSTREAM_DEVCONTAINER_JSON,
   loadProfile,
   getAllProfiles,
 } from "../helpers/settings.js";
-import { fetchUrl, getTerminalId } from "../helpers/devcontainer.js";
+import {
+  getTerminalId,
+  loadDevcontainerFiles,
+} from "../helpers/devcontainer.js";
 import { mergeHooks, removeHooks } from "../lib/merge-hooks.js";
 
 async function runDevcontainer(
@@ -178,16 +178,14 @@ async function runDevcontainer(
       process.env.WHITELIST_DOMAINS = uniqueDomains.join(" ");
     }
 
-    // Create temp directory for devcontainer config
-    devcontainerDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "claudeman-devcontainer-"),
-    );
-
     let upstreamConfigRaw;
 
     if (localDevcontainerDir) {
       // Copy local devcontainer files to temp dir (never write to the source)
       console.log(`Using local devcontainer dir: ${localDevcontainerDir}`);
+      devcontainerDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "claudeman-devcontainer-"),
+      );
       for (const f of ["Dockerfile", "init-firewall.sh"]) {
         fs.copyFileSync(
           path.join(localDevcontainerDir, f),
@@ -199,19 +197,9 @@ async function runDevcontainer(
         "utf8",
       );
     } else {
-      // Fetch upstream devcontainer config files
-      const [dockerfile, firewall, configRaw] = await Promise.all([
-        fetchUrl(UPSTREAM_DOCKERFILE),
-        fetchUrl(UPSTREAM_FIREWALL),
-        fetchUrl(UPSTREAM_DEVCONTAINER_JSON),
-      ]);
-      upstreamConfigRaw = configRaw;
-
-      fs.writeFileSync(path.join(devcontainerDir, "Dockerfile"), dockerfile);
-      fs.writeFileSync(
-        path.join(devcontainerDir, "init-firewall.sh"),
-        firewall,
-      );
+      const result = loadDevcontainerFiles();
+      devcontainerDir = result.dir;
+      upstreamConfigRaw = result.configRaw;
     }
 
     // Get terminal info for notifications (before config generation)

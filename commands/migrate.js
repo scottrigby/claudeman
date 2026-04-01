@@ -2,21 +2,18 @@ import { Command } from "commander";
 import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
-import os from "os";
+
 import readline from "readline";
 import {
   SCRIPT_DIR,
   DEVCONTAINER_CLI,
   CONTAINER_RUNTIME,
-  UPSTREAM_DOCKERFILE,
-  UPSTREAM_FIREWALL,
-  UPSTREAM_DEVCONTAINER_JSON,
   getProfileDirs,
   getProfilePath,
   ensureProfileDir,
   promptYN,
 } from "../helpers/settings.js";
-import { fetchUrl } from "../helpers/devcontainer.js";
+import { loadDevcontainerFiles } from "../helpers/devcontainer.js";
 import { mergeHooks } from "../lib/merge-hooks.js";
 import {
   getSettingsPaths,
@@ -446,20 +443,11 @@ async function installPluginInContainer(plugin, workspaceFolder) {
   };
 
   try {
-    console.log("  Fetching upstream devcontainer config...");
-    const [dockerfile, firewall, upstreamConfigRaw] = await Promise.all([
-      fetchUrl(UPSTREAM_DOCKERFILE),
-      fetchUrl(UPSTREAM_FIREWALL),
-      fetchUrl(UPSTREAM_DEVCONTAINER_JSON),
-    ]);
+    console.log("  Loading devcontainer config...");
+    const result = loadDevcontainerFiles();
+    devcontainerDir = result.dir;
 
-    devcontainerDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "claudeman-devcontainer-"),
-    );
-    fs.writeFileSync(path.join(devcontainerDir, "Dockerfile"), dockerfile);
-    fs.writeFileSync(path.join(devcontainerDir, "init-firewall.sh"), firewall);
-
-    const upstreamConfig = JSON.parse(upstreamConfigRaw);
+    const upstreamConfig = JSON.parse(result.configRaw);
     const config = {
       ...upstreamConfig,
       name: "claudeman-plugin-install",
