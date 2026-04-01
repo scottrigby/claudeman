@@ -173,40 +173,4 @@ describe("feature commands", () => {
       expect(stdout).toContain("not in profile");
     });
   });
-
-  // Note: feature search and feature info tests are skipped by default
-  // because they require network access to containers.dev
-  // Uncomment to run integration tests
-  describe.skip("feature search (integration)", () => {
-    it("searches containers.dev index", async () => {
-      const { stdout } = await execa(CLI, ["feature", "search", "go"], {
-        cwd: fixture.dir,
-      });
-
-      expect(stdout).toContain("ghcr.io/devcontainers/features/go");
-    });
-
-    it("handles no results", async () => {
-      const { stdout } = await execa(
-        CLI,
-        ["feature", "search", "xyznonexistent123"],
-        { cwd: fixture.dir },
-      );
-
-      expect(stdout).toContain("No features found");
-    });
-  });
-
-  describe.skip("feature info (integration)", () => {
-    it("shows feature details", async () => {
-      const { stdout } = await execa(
-        CLI,
-        ["feature", "info", "ghcr.io/devcontainers/features/go:1"],
-        { cwd: fixture.dir },
-      );
-
-      expect(stdout).toContain("Go");
-      expect(stdout).toContain("Options:");
-    });
-  });
 });

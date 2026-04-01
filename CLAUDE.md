@@ -13,11 +13,20 @@ If developing from inside a container (e.g., via claudeman itself), run
 `npm install` first — native modules like vitest's rolldown binding are
 platform-specific and need to be rebuilt for the container's architecture.
 
-Run the test suite:
+Tests are split into three tiers:
 
 ```bash
-npm test
+npm test                  # unit — fast, offline, runs in containers
+npm run test:integration  # integration — needs network (containers.dev API)
+npm run test:e2e          # e2e — needs container runtime (podman/docker) + network
+npm run test:all          # all tiers
 ```
+
+File naming convention:
+
+- `*.test.js` — unit tests
+- `*.integration.test.js` — network-dependent tests
+- `*.e2e.test.js` — container runtime tests (future)
 
 For a quick smoke test of the CLI:
 
