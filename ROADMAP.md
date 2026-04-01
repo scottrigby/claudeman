@@ -51,6 +51,16 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for design context.
 
 ---
 
+## Hardening
+
+- [ ] Profile delete confirmation prompt before removing
+- [ ] Invalid port validation (reject NaN from parseInt)
+- [ ] Scope prompt input validation (loop until valid answer)
+- [ ] Refactor `installPluginInContainer` to use `spawn` with args array instead of `execSync` string interpolation
+- [ ] `--dry-run` flag for migrate and init commands
+
+---
+
 ## Platform Support
 
 - [ ] Linux desktop notifications (via notify-send or similar)

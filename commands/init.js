@@ -38,7 +38,9 @@ export const initCmd = new Command("init")
         try {
           settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
         } catch {
-          // Invalid JSON, start fresh
+          console.warn(
+            `Warning: ${settingsPath} contains invalid JSON, starting fresh`,
+          );
         }
       }
 

@@ -139,7 +139,9 @@ async function runDevcontainer(
         try {
           settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
         } catch {
-          // Invalid JSON, start fresh
+          console.warn(
+            `Warning: ${settingsPath} contains invalid JSON, starting fresh`,
+          );
         }
       }
       const merged = mergeHooks(settings, { hooks: profile.hooks });
