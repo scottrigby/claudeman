@@ -128,7 +128,7 @@ devcontainer files from `scottrigby/claude-code` instead of
 Three sources of extra domains are merged (deduplicated) and passed via
 `WHITELIST_DOMAINS`:
 
-1. `host.containers.internal` — always added for notification TCP traffic
+1. `host.containers.internal` — always added for notification and browser relay traffic
 2. Profile `extraDomains` — declared in the profile JSON
 3. `--extra-domains` flag — one-off additions at `claudeman run` time
 
@@ -168,20 +168,25 @@ Claude sessions inside containers need to notify the host when they need attenti
 
 ```
 ┌─────────────────────┐         ┌─────────────────────┐
-│  Container          │   TCP   │  Host (macOS)       │
+│  Container          │  HTTP   │  Host (macOS)       │
 │                     │  :8080  │                     │
 │  notify.js ─────────┼────────►│  listener.js        │
 │  (via Claude hooks) │         │  ├─ say "message"   │
 │                     │         │  ├─ show dialog     │
-└─────────────────────┘         │  └─ focus terminal  │
-                                └─────────────────────┘
+│                     │         │  ├─ focus terminal  │
+│  browser-open.js ───┼────────►│  └─ open browser    │
+│                     │         │                     │
+└─────────────────────┘         └─────────────────────┘
 ```
 
 **How it works:**
 
 1. Host runs `claudeman listen` before starting containers
-2. Container sends TCP payload: `eventType\nTERM_PROGRAM\nTERM_ID\nmessage`
+2. Container sends JSON via HTTP POST to `host.containers.internal:8080`:
+   - `POST /notify` — `{ type, message, termProgram, termId }`
+   - `POST /open` — `{ type, url, callbackPort, containerRuntime, containerId }`
 3. Listener announces via `say`, shows dialog, focuses terminal tab on OK
+4. For OAuth URLs, listener proxies the callback into the container via `podman exec`
 
 **Hook strategy:** Four hooks provide a hybrid notification approach:
 

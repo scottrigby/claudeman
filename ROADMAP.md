@@ -31,7 +31,6 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for design context.
 
 ## Notifications
 
-- [ ] Replace raw TCP with HTTP/JSON for listener protocol
 - [ ] `error` event type with distinct audio
 - [ ] Notification preferences: sound selection, per-type sound override,
       voice selection, bell/voice toggle, silent mode
