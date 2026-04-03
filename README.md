@@ -110,9 +110,12 @@ One listener serves all running claudeman sessions. Receives notifications and b
 claudeman run                      # Run with default (minimal) profile
 claudeman run --profile=go         # Run with Go profile
 claudeman run --profile=full       # Run with all features
+claudeman run --env MY_VAR=value   # Set container env var (repeatable)
 claudeman run -- bash              # Shell access
 claudeman run -- --worktree feat   # Git worktree mode
 ```
+
+Environment variables are passed securely — the generated devcontainer.json contains `${localEnv:KEY:}` references, not literal values.
 
 ### Profiles
 

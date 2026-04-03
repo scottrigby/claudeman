@@ -22,6 +22,13 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for design context.
 
 ---
 
+## Environment Variables
+
+- [ ] Profile `env` field for per-profile variables (e.g., `GOPRIVATE`)
+- [ ] Evaluate Podman/Docker `--secret` and `--env-file` for sensitive values
+
+---
+
 ## Hooks
 
 - [ ] `hook add/remove/list` — manage hooks in profiles, same pattern as

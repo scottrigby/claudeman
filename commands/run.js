@@ -22,6 +22,7 @@ async function runDevcontainer(
   claudeExtraArgs = [],
   extraDomains = [],
   localDevcontainerDir = null,
+  envVars = [],
 ) {
   // Check for container runtime
   if (!CONTAINER_RUNTIME) {
@@ -230,6 +231,19 @@ async function runDevcontainer(
       cacheEnvVars[envVar] = `/workspace/.claude/claudeman/cache/${subdir}`;
     }
 
+    // Set --env values in process.env and build containerEnv references.
+    // Values live only in process memory; the devcontainer.json gets
+    // ${localEnv:KEY:} references, not literal values.
+    const userEnvRefs = {};
+    for (const entry of envVars) {
+      const eqIdx = entry.indexOf("=");
+      if (eqIdx === -1) continue;
+      const key = entry.substring(0, eqIdx);
+      const value = entry.substring(eqIdx + 1);
+      process.env[key] = value;
+      userEnvRefs[key] = `\${localEnv:${key}:}`;
+    }
+
     const config = {
       ...upstreamConfig,
       // Merge profile features with any upstream features
@@ -243,6 +257,7 @@ async function runDevcontainer(
       containerEnv: {
         ...(upstreamConfig.containerEnv || {}),
         CLAUDE_CONFIG_DIR: "/workspace/.claude-config",
+        ...userEnvRefs,
       },
       // Mount .claude-config for persistent auth + bash history.
       // .claude/ is already available via upstream workspaceMount.
@@ -345,11 +360,18 @@ export const runCmd = new Command("run")
     (v) => v.split(",").filter(Boolean),
   )
   .option("--devcontainer-dir <path>", "Local devcontainer files")
+  .option(
+    "--env <KEY=VALUE>",
+    "Set environment variable in container (repeatable)",
+    (val, acc) => [...acc, val],
+    [],
+  )
   .action(async (opts, cmd) => {
     const profileName = opts.profile;
     const workspaceFolder = opts.workspace || process.cwd();
     const extraDomains = opts.extraDomains || [];
     const devcontainerDir = opts.devcontainerDir || null;
+    const envVars = opts.env || [];
     const claudeExtraArgs = cmd.args;
     await runDevcontainer(
       profileName,
@@ -357,5 +379,6 @@ export const runCmd = new Command("run")
       claudeExtraArgs,
       extraDomains,
       devcontainerDir,
+      envVars,
     );
   });
