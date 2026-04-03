@@ -1,0 +1,46 @@
+{
+  "hooks": {
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '\"Task complete: \\(.task_subject)\"' | xargs -I{} notify complete '{}'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -e '.last_assistant_message | test(\"(done|complete|finished|ready|created|fixed|updated|written)\"; \"i\")' && notify complete 'Task finished' || true"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "notify question 'Claude has a question'"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "notify idle 'Claude is waiting'"
+          }
+        ]
+      }
+    ]
+  }
+}

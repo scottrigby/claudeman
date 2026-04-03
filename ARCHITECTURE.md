@@ -1,632 +1,331 @@
-# Claudeman Architecture
+# Architecture
 
-**Version:** 1.1
-**Last Updated:** 2026-03-09
+claudeman wraps the `@devcontainers/cli` to run Claude Code in isolated containers with customizable feature sets.
 
----
+## Core Concepts
 
-## Table of Contents
+### Profiles
 
-- [Overview](#overview)
-- [High-Level Architecture](#high-level-architecture)
-- [Component Breakdown](#component-breakdown)
-  - [Host Components](#host-components)
-  - [Container Components](#container-components)
-- [Notification Flow](#notification-flow)
-- [Multi-Session Support](#multi-session-support)
-- [File Structure](#file-structure)
-- [Key Design Decisions](#key-design-decisions)
-- [Container vs. Host Boundary](#container-vs-host-boundary)
-- [Dependencies](#dependencies)
-- [Performance](#performance)
-- [Error Handling](#error-handling)
-- [Security](#security)
-- [Troubleshooting](#troubleshooting)
-- [Key Discoveries from Hook Development](#key-discoveries-from-hook-development)
-- [References](#references)
+Profiles are JSON files that define which devcontainer features to include. A profile looks like:
 
----
-
-## Overview
-
-Claudeman is a tool that runs Claude Code in a Podman container with custom development dependencies (Go, linters, formatters) and provides automatic desktop notifications for task completion and questions.
-
-**Key Features:**
-
-- Containerized Claude Code with pre-installed dependencies
-- Automatic desktop notifications via hooks
-- Multi-session support with per-tab window focusing
-- Audio announcements for different event types
-- Local project scoping (each project has its own configuration)
-
----
-
-## High-Level Architecture
-
-```
-┌──────────────────────────────────────────────────────────┐
-│ Host Machine (macOS)                                     │
-│                                                          │
-│  ┌────────────────────┐         ┌────────────────────┐   │
-│  │ Terminal Tab 1     │         │ Terminal Tab 2     │   │
-│  │ (Ghostty/Terminal/ │         │ (Ghostty/Terminal/ │   │
-│  │  iTerm2)           │         │  iTerm2)           │   │
-│  │                    │         │                    │   │
-│  │ $ claudeman run    │         │ $ claudeman run    │   │
-│  │                    │         │                    │   │
-│  │ ┌────────────────┐ │         │ ┌────────────────┐ │   │
-│  │ │  Podman        │ │         │ │  Podman        │ │   │
-│  │ │  Container     │ │         │ │  Container     │ │   │
-│  │ │                │ │         │ │                │ │   │
-│  │ │ Claude Code    │ │         │ │ Claude Code    │ │   │
-│  │ │ + Go tools     │ │         │ │ + Go tools     │ │   │
-│  │ │ + Hooks        │ │         │ │ + Hooks        │ │   │
-│  │ └───────┬────────┘ │         │ └──────┬─────────┘ │   │
-│  └─────────┼──────────┘         └────────┼───────────┘   │
-│            │                              │              │
-│            │  TCP notifications           │              │
-│            │  (host.containers.internal)  │              │
-│            │                              │              │
-│            └──────────┬───────────────────┘              │
-│                       │                                  │
-│                       ▼                                  │
-│              ┌────────────────┐                          │
-│              │ listener.js    │                          │
-│              │ (port 8080)    │                          │
-│              │                │                          │
-│              │ - Parse events │                          │
-│              │ - Show dialog  │                          │
-│              │ - Play audio   │                          │
-│              │ - Focus tab    │                          │
-│              └────────────────┘                          │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
+```json
+{
+  "name": "go",
+  "description": "Go development with linters",
+  "features": {
+    "ghcr.io/devcontainers/features/go:1": {}
+  }
+}
 ```
 
----
+**Why profiles?** Instead of managing complex Dockerfile customizations, profiles let users pick from 1000+ pre-built devcontainer features. Features are maintained by the community and handle installation details automatically.
 
-## Component Breakdown
+### Profile Scoping
 
-### Host Components
+Profiles are loaded from three locations (more specific wins):
 
-#### 1. `claudeman` (Bash Script)
+1. **app** - Bundled defaults (`SCRIPT_DIR/profiles/`)
+2. **user** - Personal customizations (`~/.config/claudeman/profiles/`)
+3. **project** - Project-specific needs (`PWD/.claude/claudeman/profiles/`)
 
-**Purpose:** Main entry point for running containerized Claude Code
+**Why scoping?** Users can override bundled profiles without modifying the installation. Teams can commit project-specific profiles to version control.
 
-**Key Responsibilities:**
+### Feature Discovery
 
-- Downloads upstream Anthropic Dockerfile
-- Appends Containerfile fragments (`.cf` files) for dependencies
-- Builds the extended container image
-- Detects terminal app via `TERM_PROGRAM` and captures terminal-specific ID using AppleScript
-- Copies claudeman scripts into `.claude/claudeman/`
-- Merges hooks into `.claude/settings.json`
-- Runs the container with volume mounts for config and project files
+Features are fetched from `containers.dev/static/devcontainer-index.json`, a pre-crawled index of all registered devcontainer features (~1.5MB, updated daily).
 
-**Containerfile Fragments:**
+**Why fetch fresh?** The index is small and always current. Caching adds complexity (staleness, invalidation) without meaningful performance benefit.
 
-Dependencies are installed at build time via `.cf` files selected with `--deps=`:
-
-| Location                        | Purpose                                         |
-| ------------------------------- | ----------------------------------------------- |
-| `lib/deps/*.cf`                 | Bundled examples (go, python, rust, playwright) |
-| `~/.config/claudeman/deps/*.cf` | User overrides (same name takes precedence)     |
-| `.claude/deps/*.cf`             | Project-specific deps (always included)         |
-
-Usage: `claudeman run --deps=go,python` or `--deps=all`
-
-Fragments are appended to the upstream Claude Code Dockerfile (which uses `node:20` base image, Debian). A final `USER node` is added for safety.
-
-**Image Naming:**
-
-Images are tagged based on selected deps, allowing multiple configurations to coexist:
-
-| Command                          | Image                 |
-| -------------------------------- | --------------------- |
-| `claudeman run`                  | `claudeman:latest`    |
-| `claudeman run --deps=go`        | `claudeman:go`        |
-| `claudeman run --deps=go,python` | `claudeman:go-python` |
-| `claudeman run --deps=all`       | `claudeman:all`       |
-
-Deps are sorted alphabetically in the tag. Per [OCI Distribution Spec](https://github.com/opencontainers/distribution-spec/blob/main/spec.md), tags are limited to 128 characters; longer tags are truncated with `-TRUNC` suffix.
-
-**Supported Terminals:**
-
-| Terminal                                 | `TERM_PROGRAM`   | ID Type           |
-| ---------------------------------------- | ---------------- | ----------------- |
-| [Ghostty](https://ghostty.org/) (1.3.0+) | `ghostty`        | Terminal UUID     |
-| Terminal.app                             | `Apple_Terminal` | Window ID         |
-| [iTerm2](https://iterm2.com/)            | `iTerm.app`      | Session unique ID |
-
-#### 2. `listener.js` (Node.js TCP Server)
-
-**Purpose:** Receives notifications from containers and triggers macOS notifications
-
-**Key Responsibilities:**
-
-- Listens on TCP port 8080
-- Parses four-line protocol: `eventType\nTERM_PROGRAM\nTERM_ID\nmessage\n`
-- Filters out HTTP requests (from network scanners/browsers)
-- Shows macOS dialog with OK/Cancel buttons
-- Plays audio announcement via `say` command
-- Focuses the correct terminal tab when user clicks OK
-
-**Event Types:**
-
-- `complete` → "✅ task complete" → Audio: "claude-man task complete"
-- `question` → "❓ needs input" → Audio: "claude-man needs input"
-- `info` → "ℹ️ info" → Audio: "claude-man info"
-
-**Tab Focusing:**
-
-Uses AppleScript tailored to each terminal app:
-
-- **Ghostty:** `focus terminal id <UUID>`
-- **Terminal.app:** `set index of (first window whose id is <ID>) to 1`
-- **iTerm2:** Iterates windows/tabs/sessions to find matching `unique id`, then selects
-
-**Protocol Filter:**
-
-Detects HTTP requests by checking if the first line starts with an HTTP method (GET, POST, etc.), responds with HTTP 200 OK, and discards the request.
-
----
-
-### Container Components
-
-#### Hook Architecture
-
-The automatic notification system is powered by Claude Code's hook system:
+## Runtime Flow
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│ Claude Code Container                                   │
-│                                                         │
-│  ┌─────────────────────────────────────────────┐        │
-│  │ settings.json hooks (selected via --hooks=) │        │
-│  └───────────────┬─────────────────────────────┘        │
-│               │                                         │
-│               ├─► PreToolUse(AskUserQuestion)           │
-│               │   → dedup.js → notify.js -t question    │
-│               │                                         │
-│               ├─► PostToolUse(Write|Edit|MultiEdit)     │
-│               │   → prettier, gofmt, goimports          │
-│               │                                         │
-│               └─► UserPromptSubmit                      │
-│                   → enforce-questions.sh                │
-│                                                         │
-│  notify.js ──────────► TCP ───────────────────────┐     │
-└───────────────────────────────────────────────────┼─────┘
-                                                    │
-                        ┌───────────────────────────┘
-                        ▼
-            ┌─────────────────────────┐
-            │ Host (listener.js)      │
-            │ - Parse event type      │
-            │ - Show notification     │
-            │ - Play audio            │
-            │ - Focus window          │
-            └─────────────────────────┘
+claudeman run --profile=go
+    │
+    ├─ Load profile (project > user > app)
+    │
+    ├─ Create temp directory
+    │
+    ├─ Fetch from upstream (in parallel):
+    │   ├─ Dockerfile
+    │   ├─ init-firewall.sh
+    │   └─ devcontainer.json
+    │
+    ├─ Merge upstream devcontainer.json with our changes:
+    │   ├─ Override name → "Claude Code (profile-name)"
+    │   ├─ Override mounts → bind mounts from PWD/.claude
+    │   └─ Merge features → upstream features + profile features
+    │
+    ├─ Run: devcontainer up --config <temp>/devcontainer.json
+    │
+    ├─ Run: devcontainer exec claude --dangerously-skip-permissions
+    │
+    └─ On exit (Ctrl+C or claude exit):
+        ├─ Stop container (podman/docker stop)
+        ├─ Remove container (podman/docker rm)
+        └─ Cleanup temp directory
+```
+
+**Why temp directory?** The devcontainer CLI requires files on disk. Using a temp directory keeps the project clean and ensures we always use the latest upstream config.
+
+**Why fetch and merge?** Anthropic's devcontainer config evolves without version tags. By fetching the upstream devcontainer.json and merging (not replacing), we automatically inherit new build args, environment variables, VS Code settings, and other improvements while only overriding what we specifically need (name, mounts, features).
+
+**Why stop and remove on exit?** Clean slate each run. Container state (history, config) is preserved via bind mounts to `PWD/.claude/`, so stopping the container doesn't lose work.
+
+## Project Isolation and Scoping
+
+Claude Code uses two directories inside the container:
+
+- **Project scope** (`/workspace/.claude/`) — settings, hooks, CLAUDE.md.
+  Available via the upstream `workspaceMount`. Persists on the host and is
+  version-controllable.
+- **User config** (`/workspace/.claude-config/`) — auth credentials, plugins
+  cache, session state, `.claude.json`. Bind-mounted from `PWD/.claude-config/`
+  on the host. Persists across sessions. Gitignored (contains credentials).
+
+Claudeman sets `CLAUDE_CONFIG_DIR=/workspace/.claude-config` to separate user
+config from project config. Without this, both scopes would point to `.claude/`,
+causing plugins and hooks to appear duplicated.
+
+**Mounts:**
+
+- `PWD/.claude-config/` → `/workspace/.claude-config/` (auth + plugins cache)
+- `PWD/.claude/.bash_history` → `/commandhistory/.bash_history`
+- `PWD/` → `/workspace/` (upstream workspaceMount — covers `.claude/` + source)
+
+Note: claudeman's own `--scope global` (host `~/.config/claudeman/`) is for
+claudeman profiles, not Claude Code config. It persists on the host independently.
+
+## Firewall Domains
+
+The upstream devcontainer runs `init-firewall.sh` which blocks all outbound
+traffic except to a list of allowed domains (Anthropic API, npm registry,
+VS Code marketplace, etc.). Tools that need runtime network access like
+`go mod download` or `pip install` require additional domains to be allowed.
+
+### How it works
+
+The upstream firewall (PR [#40322](https://github.com/anthropics/claude-code/pull/40322))
+uses a hybrid static/dynamic ipset approach:
+
+- **Static ipset**: GitHub CIDR ranges (stable, fetched from the GitHub API)
+- **Dynamic ipset**: all other domains, resolved via DNS with a configurable
+  TTL (default 600s). A background loop re-resolves domains every
+  `DNS_REFRESH` seconds (default 300s) to track CDN IP rotation.
+- **`WHITELIST_DOMAINS` env var**: space-separated list of additional domains
+  merged into the dynamic set at container startup.
+
+Claudeman sets `WHITELIST_DOMAINS` as a process env var before calling the
+devcontainer CLI. The upstream `devcontainer.json` passes it into the container
+via `${localEnv:WHITELIST_DOMAINS:}`, and the `postStartCommand` forwards it
+through `sudo` to the firewall script.
+
+**Temporary fork:** Until PR #40322 merges upstream, claudeman fetches
+devcontainer files from `scottrigby/claude-code` instead of
+`anthropics/claude-code`. See the `UPSTREAM_BASE` constant in `claudeman`.
+
+### Domain sources
+
+Three sources of extra domains are merged (deduplicated) and passed via
+`WHITELIST_DOMAINS`:
+
+1. `host.containers.internal` — always added for notification and browser relay traffic
+2. Profile `extraDomains` — declared in the profile JSON
+3. `--extra-domains` flag — one-off additions at `claudeman run` time
+
+**Why per-profile, not global?** Different profiles need different domains — Go
+profiles need `proxy.golang.org`, Python needs `pypi.org`, etc. Putting domains
+in profiles keeps the configuration co-located with the features that need them.
+
+## Persistent Caches
+
+Containers are ephemeral — `go mod download`, `pip install`, etc. re-download
+everything on each run. Profiles solve this with `cacheEnv`: a map of environment
+variables to subdirectories under `.claude/claudeman/cache/`.
+
+**How it works:** At startup, claudeman creates each subdirectory on the host
+(under `PWD/.claude/claudeman/cache/`) and sets the corresponding env var in
+`remoteEnv`. The upstream `workspaceMount` makes `PWD` available at `/workspace/`
+inside the container, so cache directories are accessible at
+`/workspace/.claude/claudeman/cache/`. No extra mount is needed.
+
+**Why `cacheEnv` in profiles, not inferred from features?** Each tool has its own
+env var conventions (`GOMODCACHE`, `PIP_CACHE_DIR`, `CARGO_HOME`, etc.). Inferring
+from feature IDs would require maintaining a mapping of feature → env vars that
+could drift. Explicit declaration in the profile is simpler and transparent.
+
+**Why do devcontainer features rebuild every time?** The devcontainer CLI installs
+features using `RUN --mount=type=bind` in the generated Dockerfile, which
+prevents layer caching. This is an upstream limitation
+([devcontainers/spec#345](https://github.com/devcontainers/spec/issues/345)).
+The base image layers before feature installation are cached. `cacheEnv` mitigates
+the impact by persisting downloaded dependencies (the slow part) across rebuilds.
+
+## Notifications
+
+Claude sessions inside containers need to notify the host when they need attention (task complete, question pending, etc.). This is critical when running multiple Claude sessions in different terminal tabs.
+
+**Architecture:**
+
+```
+┌─────────────────────┐         ┌─────────────────────┐
+│  Container          │  HTTP   │  Host (macOS)       │
+│                     │  :8080  │                     │
+│  notify.js ─────────┼────────►│  listener.js        │
+│  (via Claude hooks) │         │  ├─ say "message"   │
+│                     │         │  ├─ show dialog     │
+│                     │         │  ├─ focus terminal  │
+│  browser-open.js ───┼────────►│  └─ open browser    │
+│                     │         │                     │
+└─────────────────────┘         └─────────────────────┘
 ```
 
 **How it works:**
 
-1. Claude Code invokes hooks automatically at key moments
-2. PreToolUse fires _before_ a tool executes
-3. PostToolUse fires _after_ a tool completes
-4. UserPromptSubmit fires _before_ user input is processed
-5. Hooks run shell commands that trigger notifications
-6. notify.js sends events to listener.js via TCP
-7. listener.js shows macOS notification and focuses window
+1. Host runs `claudeman listen` before starting containers
+2. Container sends JSON via HTTP POST to `host.containers.internal:8080`:
+   - `POST /notify` — `{ type, message, termProgram, termId }`
+   - `POST /open` — `{ type, url, callbackPort, containerRuntime, containerId }`
+3. Listener announces via `say`, shows dialog, focuses terminal tab on OK
+4. For OAuth URLs, listener proxies the callback into the container via `podman exec`
 
----
+**Hook strategy:** Four hooks provide a hybrid notification approach:
 
-#### 3. Modular Hooks (`lib/hooks/*.json`)
+| Hook            | Purpose                        | Matcher support | Filtering                                   |
+| --------------- | ------------------------------ | --------------- | ------------------------------------------- |
+| `TaskCompleted` | Precise task completion signal | No              | None needed — fires once per task           |
+| `Stop`          | Catch untracked completions    | No              | jq keyword filter on last_assistant_message |
+| `PreToolUse`    | Question detection             | Yes             | Matcher: `AskUserQuestion`                  |
+| `Notification`  | Idle/waiting detection         | Yes             | Matcher: `idle_prompt`                      |
 
-**Purpose:** Define automatic hooks that trigger formatting and notifications
+- **`TaskCompleted`** fires once per `TaskUpdate(status=completed)`. Input includes
+  `task_subject`, `task_description`, `teammate_name`, `team_name`. This is the
+  precise completion signal for tracked work.
+- **`Stop`** fires on every response turn, so it requires keyword filtering in the
+  command itself (jq checks `last_assistant_message` for completion keywords). This
+  catches significant one-off responses that have no associated task. The `|| true`
+  suffix prevents errors when stopping with no text output.
+- **`PreToolUse`** with matcher `AskUserQuestion` fires consistently and immediately
+  when Claude asks a question.
+- **`Notification`** with matcher `idle_prompt` fires after Claude has been waiting
+  for user input for a threshold period while the window is not focused. The message
+  payload is always a static string — no dynamic content or session context. The
+  `notification_type` field works as a matcher, so the hook can scope to `idle_prompt`
+  without command-level filtering.
 
-Hooks are stored as separate JSON files for modularity. Select which hooks to enable with `--hooks=`:
+`TaskCompleted` and `Stop` do not support matchers — all filtering must be done
+in the hook command. `PreToolUse` and `Notification` support matchers natively.
 
-| File              | Hook Type        | Requires         | Purpose                           |
-| ----------------- | ---------------- | ---------------- | --------------------------------- |
-| `prettier.json`   | PostToolUse      | -                | Auto-format with prettier         |
-| `whitespace.json` | PostToolUse      | whitespace-tools | Fix trailing spaces, newline EOF  |
-| `gofmt.json`      | PostToolUse      | go               | Auto-format Go files              |
-| `q-notify.json`   | PreToolUse       | -                | Notify when Claude asks questions |
-| `q-enforce.json`  | UserPromptSubmit | -                | Force AskUserQuestion tool usage  |
+**Known `Notification` hook issues:**
 
-**User overrides:** `~/.config/claudeman/hooks/` (same filename takes precedence)
+| Hook                               | Problem                | Issue                                                                              |
+| ---------------------------------- | ---------------------- | ---------------------------------------------------------------------------------- |
+| `Notification` (permission_prompt) | Fires ~25% of the time | [#9575](https://github.com/anthropics/claude-code/issues/9575) (closed, not fixed) |
+| `Notification`                     | 10+ second delay       | [#5186](https://github.com/anthropics/claude-code/issues/5186)                     |
 
-**Selection:** Only hooks specified via `--hooks=` are merged into `.claude/settings.json`. Running without `--hooks=` clears all hooks.
+The `idle_prompt` type is usable despite these issues — it fires reliably when
+the window is unfocused and Claude is waiting.
 
-**Dependencies:** Hooks can declare required deps via `"deps": ["go"]` in the JSON. Claudeman validates that required deps are selected before merging hooks.
+**Why this approach?** Key advantages over alternatives (devcontainers-notifier, node-notifier, etc.): terminal tab focusing, audio support, multi-session awareness, no VS Code dependency. See [ROADMAP.md](ROADMAP.md#notifications) for future improvements.
 
-#### 4. `notify.js` (Notification Sender)
+## Migration
 
-**Purpose:** Sends notifications from container to host listener
+claudeman v2 is architecturally different from v1: profiles replace Containerfile
+fragments, and the notification system uses a simpler `notify` command rather than
+multiple hook scripts. The `claudeman migrate` commands automate cleanup of v1 artifacts
+so users aren't left with orphaned files and duplicate hooks.
 
-**Features:**
+### How it works
 
-- Supports both container and host invocation
-- `-h/--host` flag for specifying listener host (defaults to `host.containers.internal` in container, requires explicit `-h localhost` on host)
-- `-t/--type` flag for event type (complete, question, info)
-- `-m/--message` flag for custom message
-- `-p/--port` flag for custom port (default: 8080)
-
-**Environment Variables:**
-
-- `TERM_PROGRAM` - Terminal program name (ghostty, Apple_Terminal, iTerm.app)
-- `TERM_ID` - Terminal-specific ID for tab focusing
-
-**Protocol:**
-
-Sends four lines over TCP: event type, TERM_PROGRAM, TERM_ID, and message, each separated by a newline character.
-
-#### 5. `dedup.js` (Deduplication Wrapper)
-
-**Purpose:** Prevents duplicate notifications from Claude's hook bug
-
-**How it works:**
-
-1. Takes lock key as first argument (e.g., `"question-$TERM_ID"`)
-2. Checks for lock file: `/tmp/claudeman-lock-${lockKey}.lock`
-3. If lock exists and age < 2 seconds, skip (duplicate)
-4. Otherwise, create lock and execute command (remaining args)
-
-**Why needed:** Claude Code sometimes fires hooks 2-4 times for a single event (known bug). Deduplication ensures only one notification is sent.
-
-#### 6. `enforce-questions.sh` (Question Enforcer)
-
-**Purpose:** Forces Claude to always use AskUserQuestion tool
-
-**How it works:**
-
-1. Reads user input from stdin
-2. Appends instruction to use AskUserQuestion
-3. Outputs modified input
-
-**Effect:** Claude will ALWAYS use the structured AskUserQuestion tool instead of asking questions in chat, ensuring 100% reliable question notifications.
-
----
-
-## Notification Flow
-
-When Claude asks a question (with `--hooks=questions` enabled):
-
-1. **Hook fires** (PreToolUse for AskUserQuestion)
-2. **Hook script runs** (dedup.js → notify.js)
-3. **TCP message sent** to listener: `eventType\nTERM_PROGRAM\nTERM_ID\nmessage\n`
-4. **Listener receives** and parses the message
-5. **macOS notification** shown with emoji and message (OK/Cancel buttons)
-6. **Audio plays** ("claude-man needs input")
-7. **User clicks OK** → Terminal tab focused using appropriate AppleScript for terminal type
-
----
-
-## Multi-Session Support
-
-Claudeman supports running multiple instances simultaneously in different terminal tabs, across different terminal apps.
-
-### How TERM_ID Enables Multi-Session
-
-**Each terminal tab has a unique identifier:**
-
-| Terminal     | ID Format         | Example                                |
-| ------------ | ----------------- | -------------------------------------- |
-| Ghostty      | UUID              | `FBF11A2D-BE3F-45EB-BEFE-94DC37DE29EE` |
-| Terminal.app | Window ID         | `30928`                                |
-| iTerm2       | Session unique ID | `w0t0p0:12345678-ABCD-...`             |
-
-**When `claudeman run` executes:**
-
-1. Script detects terminal via `TERM_PROGRAM` environment variable
-2. Script captures terminal-specific ID using AppleScript
-3. Container receives `TERM_PROGRAM` and `TERM_ID` as environment variables
-4. All notifications from that container include these values
-5. Listener uses appropriate AppleScript to focus the correct tab when OK is clicked
-
-**State Isolation:**
-
-- Lock files: `/tmp/claudeman-lock-question-${TERM_ID}.lock`
-- State files: `/tmp/claudeman-termid-${TERM_ID}.json`
-
-Each session has independent state, preventing crosstalk between sessions.
-
-### Example: Three Simultaneous Sessions (Mixed Terminals)
+**Commands:**
 
 ```
-Ghostty Tab (TERM_ID: FBF11A2D-...) → Project: website
-Terminal.app Tab (TERM_ID: 56974)   → Project: api-server
-iTerm2 Tab (TERM_ID: w0t0p0:...)    → Project: mobile-app
+claudeman migrate remove-v1-hooks  [--hooks=NAME,...] [--scope=global|project|all] [-y]
+claudeman migrate remove-v1-deps   [--deps=NAME,...]  [--scope=global|project|all] [-y]
+claudeman migrate convert-v1-hooks [--hooks=NAME,...] [--scope=global|project|all] [-y]
+claudeman migrate convert-v1-deps  [--deps=NAME,...]  [--scope=global|project|all] [-y]
 ```
 
-When the api-server Claude asks a question:
+**V1 artifact locations:**
 
-- Notification shows with TERM_PROGRAM=Apple_Terminal, TERM_ID=56974
-- User clicks OK
-- Terminal.app focuses the correct tab (not Ghostty or iTerm2)
-- User sees context: `api-server` directory and prompt
+| Scope   | Hook settings                    | Hook configs                 | Dep files                   |
+| ------- | -------------------------------- | ---------------------------- | --------------------------- |
+| project | `.claude/settings.json`          | `.claude/claudeman/hooks/`   | `.claude/claudeman/deps/`   |
+| user    | `~/.config/claude/settings.json` | `~/.config/claudeman/hooks/` | `~/.config/claudeman/deps/` |
 
-**No confusion.** User always lands in the correct project context, regardless of terminal app.
+**Detection** is verbatim matching against fixture files merged from three scopes:
 
----
+1. **App** — `migrate/v1/hooks/` or `migrate/v1/deps/` (bundled)
+2. **User** — `~/.config/claudeman/hooks/` or `~/.config/claudeman/deps/`
+3. **Project** — `.claude/claudeman/hooks/` or `.claude/claudeman/deps/`
 
-## File Structure
+For hooks, matching is by full hook definition — the `(hookType, matcher, command)` triple must all match a fixture entry verbatim; see the [Claude hooks docs](https://code.claude.com/docs/en/hooks). A hook with the same `command` string but a different hook type or matcher is not considered a match.
+For deps, matching is by `.cf` file content (byte-for-byte).
 
-```
-claudeman/
-├── claudeman                       # Main executable script
-│
-├── lib/
-│   ├── deps/                       # Bundled Containerfile fragments
-│   │   ├── go.cf                   # Go toolchain + linters
-│   │   ├── python.cf               # Python 3 + pip + venv
-│   │   ├── rust.cf                 # Rust + Cargo
-│   │   ├── playwright.cf           # Playwright + Chromium
-│   │   └── whitespace-tools.cf     # newline + trailingspace
-│   ├── hooks/                      # Bundled hook configurations
-│   │   ├── prettier.json           # Prettier formatting
-│   │   ├── whitespace.json         # Whitespace fixes
-│   │   ├── gofmt.json              # Go formatting
-│   │   ├── q-notify.json           # Question notifications
-│   │   └── q-enforce.json          # Force AskUserQuestion
-│   ├── dedup.js                    # Deduplication wrapper
-│   ├── enforce-questions.sh        # Question enforcer
-│   ├── listener.js                 # Host notification listener
-│   ├── merge-hooks.js              # Merges selected hooks into settings.json
-│   └── notify.js                   # Notification sender
-│
-├── ARCHITECTURE.md                 # This file
-└── README.md                       # User documentation
+**Classification** uses the bundled app-scope fixtures as the source of truth:
 
-User config directory (XDG standard):
-~/.config/claudeman/
-├── deps/                           # User deps (same name overrides bundled)
-│   └── *.cf                        # Containerfile fragments
-└── hooks/                          # User hooks (same name overrides bundled)
-    └── *.json                      # Hook configurations
+- **App-defined** — verbatim-matches a bundled `migrate/v1/` fixture; known migration path
+- **Custom** — matches only a global/project-scope file; no known migration path; listed for manual review
 
-Project directory (when running claudeman):
-project/
-├── .claude/
-│   ├── .claude.json                # Claude API key config (local)
-│   ├── .bash_history               # Shell history
-│   ├── settings.json               # Claude settings (includes selected hooks)
-│   ├── deps/                       # Project-specific deps (always included)
-│   │   └── *.cf                    # Containerfile fragments
-│   └── claudeman/
-│       ├── notify.js               # Copied from lib/
-│       ├── dedup.js                # Copied from lib/
-│       └── enforce-questions.sh    # Copied from lib/
-│
-└── [your project files]
-```
+**Shared flags:** `--scope=global|project|all`, `--hooks`/`--deps` name filter, `-y` (skip prompts).
 
----
+`remove-v1-hooks` and `convert-v1-hooks` both offer to delete matching hook config
+files from `.claude/claudeman/hooks/` and `~/.config/claudeman/hooks/` after acting
+on `settings.json`. `convert-v1-hooks` additionally classifies app-defined hooks into
+convertible (has a `migrate/v1/hooks.json` rule) vs no-v2-equivalent. `convert-v1-deps`
+maps app-defined `.cf` files to v2 profiles via `migrate/v1/deps.json`; custom `.cf`
+files get a preview and a `claudeman feature search` suggestion.
 
-## Key Design Decisions
+### Why
 
-### 1. TCP Instead of HTTP
+**Why verbatim matching, not pattern/signature detection?**
+We only touch artifacts we can positively identify as a claudeman v1 hooks/deps config
+file in the app, global, and/or project scope. Signature-based detection (scanning for
+path strings like `claudeman/dedup.js`) would catch hand-modified variants we cannot
+safely auto-convert. Verbatim matching is conservative by design: if a hook command or
+dep file doesn't exactly match a known fixture, we treat it as custom and don't touch it.
 
-**Decision:** Use raw TCP socket with simple three-line protocol
-**Why:**
+**Why load fixtures from three scopes (app + global + project)?**
+v1 installed hook config JSONs and dep `.cf` files into the user's machine
+(`~/.config/claudeman/`) and project (`.claude/claudeman/`). Relying only on the
+bundled app-scope fixtures for detection would miss these installed copies. Merging
+all three scopes ensures complete detection while still using the bundled fixtures
+as the authoritative source of truth for classification.
 
-- Simpler than HTTP (no headers, no parsing overhead)
-- Lower latency
-- Sufficient for local host-container communication
-- Easy to implement in both Node.js and shell scripts
+**Why use bundled app-scope fixtures as classification source of truth?**
+The bundled fixtures represent the known universe of v1 artifacts that claudeman
+itself installed. Anything not matching a bundled fixture is by definition
+user-created — we have no knowledge of its purpose or a safe v2 equivalent, so
+we list it and ask the user to decide.
 
-### 2. Terminal Detection via TERM_PROGRAM
+**Why separate `remove` and `convert` commands?**
+Not every v1 artifact has a v2 equivalent. Hooks like prettier/gofmt have no
+built-in v2 replacement — users who relied on them need to decide how to
+re-implement them. Keeping remove and convert separate lets users choose:
+drop the artifact entirely, or replace it with a v2 equivalent where one exists.
 
-**Decision:** Use `TERM_PROGRAM` environment variable to detect terminal, then AppleScript to get terminal-specific ID
-**Why:**
+**Why offer to delete hook config files after remove/convert?**
+v1 installed hook config JSONs to the user's machine as part of setup. After
+migrating hooks out of `settings.json`, these config files are orphaned —
+they're no longer referenced anywhere and just add clutter. Offering deletion
+in the same flow avoids requiring users to hunt down and manually remove them.
 
-- `TERM_PROGRAM` is a standard env var set by all major terminals
-- No need for System Events to detect frontmost app
-- Each terminal provides a unique ID per tab/session
-- Captures the ID at the moment `claudeman run` is executed
-- Supports multiple terminal apps (Ghostty, Terminal.app, iTerm2)
+**Why `migrate/v1/` fixtures double as test fixtures?**
+The fixture files serve two purposes: detection reference (the source of
+verbatim matching) and test data. Using the same files for both guarantees
+the tests exercise exactly the detection logic used in production, with no
+risk of drift between "what we ship" and "what we test against".
 
-### 3. Hook-Based Automation
+## Command Design
 
-**Decision:** Use Claude Code hooks for automatic notification triggers
-**Why:**
+Run `claudeman -h` or `claudeman <command> -h` for full command reference.
 
-- No manual invocation needed (vs. requiring CLAUDE.md instructions)
-- Reliable and consistent
-- Hooks fire at the right moments (before/after tool use)
-- Learned from claude-notifications-go project
+**Command structure:** Follows [clig.dev](https://clig.dev/) guidelines. Top-level commands with subcommands are singular nouns (`feature`, `profile`). Standalone commands and subcommands are verbs (`run`, `listen`, `init`, `search`, `add`, `create`). Exception: `info` is a noun but reads naturally as shorthand for "show info".
 
-### 4. File-Based Deduplication
-
-**Decision:** Use lock files with 2-second TTL
-**Why:**
-
-- No external dependencies
-- Handles Claude's duplicate hook bug
-- Self-cleaning (stale locks expire)
-- Works across processes (multiple sessions)
-
-### 5. Structured Question Enforcement
-
-**Decision:** Use UserPromptSubmit hook to force AskUserQuestion
-**Why:**
-
-- 100% reliability (no chance of missed questions)
-- Makes automation predictable
-- Slight latency acceptable for automation context
-- Can be disabled by removing hook if needed
-
-### 6. Local Project Scoping
-
-**Decision:** Check `.claude/.claude.json` (not `~/.claude/.claude.json`)
-**Why:**
-
-- Claudeman is project-scoped (runs in project directory)
-- Each project has independent Claude configuration
-- Container uses local config, not global
-- Clearer separation between projects
-
-### 7. Audio + Visual Notifications
-
-**Decision:** Use both macOS dialog and audio announcement
-**Why:**
-
-- Audio alerts user even when not looking at screen
-- Dialog provides detailed information
-- User can disable audio by killing listener
-
----
-
-## Container vs. Host Boundary
-
-### What Runs in Container
-
-- Claude Code
-- Go and development tools (if `--deps=go`)
-- Hook scripts (dedup.js, enforce-questions.sh)
-- notify.js (sends notifications)
-
-### What Runs on Host
-
-- claudeman script (starts container)
-- listener.js (receives notifications)
-- macOS notification system
-- AppleScript (window focusing)
-
-### Communication
-
-- **Container → Host:** TCP socket (notify.js → listener.js)
-- **Host → Container:** Volume mounts (`.claude/`, `/workspace/`)
-- **Network:** `host.containers.internal` (Podman's host.docker.internal equivalent)
-
----
+**Why `--scope` for modifications?** App-bundled profiles are read-only. Users can create/modify profiles in `global` or `project` scopes. Prompts interactively if not specified; `--scope project` allows team-shared profiles in version control.
 
 ## Dependencies
 
-### Host Requirements
+- **@devcontainers/cli** - Official CLI for building and running devcontainers
+- **Node.js** - Runtime (matches devcontainer's Node.js base image)
 
-- **macOS** (for AppleScript notifications)
-- **Podman** (container runtime)
-- **Node.js** (for listener.js)
-- **jq** (for JSON manipulation in bash)
-- **Supported terminal:** Ghostty 1.3.0+, Terminal.app, or iTerm2
-
-### Container Requirements (via .cf fragments)
-
-Dependencies are installed at build time via Containerfile fragments. The bundled `go.cf` installs:
-
-- **Go** (compiler and runtime)
-- **golangci-lint** (Go linter)
-- **goimports** (Go import formatter)
-- **whitespace-tools** (newline, trailingspace)
-- **prettier** (code formatter, from upstream)
-
-Users can add custom `.cf` fragments for additional dependencies (e.g., Playwright, Python, Rust).
-
----
-
-## Performance
-
-- **First build**: 2-3 minutes (downloads and builds container with deps)
-- **Subsequent builds**: 10-30 seconds (cached layers)
-- **Container startup**: ~5 seconds
-- **Notification latency**: ~300ms from trigger to display
-- **Memory per container**: ~500MB
-
----
-
-## Error Handling
-
-The system is designed to fail gracefully:
-
-- **Listener not running**: notify.js fails, but Claude continues working
-- **HTTP requests**: Listener detects and ignores (responds with HTTP 200)
-- **Hook failures**: Claude Code logs error and continues
-- **Invalid TERM_ID**: Notification shows but tab focus fails silently
-
----
-
-## Security
-
-- **Listener**: Binds to localhost only, filters HTTP requests
-- **Container**: Runs as non-root `node` user, limited volume mounts
-- **AppleScript**: Requires macOS automation permission for the terminal app in use (Ghostty, Terminal.app, or iTerm2)
-
----
-
-## Troubleshooting
-
-**No notifications?**
-
-- Check if listener.js is running on the host
-- Verify `--hooks=questions` was passed to `claudeman run`
-- Verify `TERM_PROGRAM` and `TERM_ID` environment variables are set in the container
-
-**Wrong tab focused?**
-
-- Restart container to capture fresh TERM_ID
-- Ensure you're using a supported terminal (Ghostty 1.3.0+, Terminal.app, or iTerm2)
-
-**Ghostty not focusing correctly?**
-
-- Requires Ghostty 1.3.0 or later for AppleScript support
-- Check Ghostty release notes: https://ghostty.org/docs/install/release-notes/1-3-0
-
-**Hook changes not taking effect?**
-
-- Changes to settings.json hooks require a Claude Code session restart
-- Hooks are NOT hot-reloaded during an active session
-- Run `claudeman run` with desired `--hooks=` to refresh
-
----
-
-## Key Discoveries from Hook Development
-
-These learnings came from extensive experimentation with Claude Code's hook system:
-
-### 1. Settings Changes Require Restart
-
-Changes to `settings.json` hooks are NOT hot-reloaded. You must restart the Claude Code session for new hooks or hook changes to take effect.
-
-### 2. Undocumented Tool Matchers Work
-
-PreToolUse matchers work with tool names not listed in documentation:
-
-- **Documented:** Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, Task, MCP tools
-- **Undocumented but working:** AskUserQuestion, TodoWrite, SlashCommand
-
-### 3. idle_prompt Notification Works
-
-The `idle_prompt` notification type works correctly and fires after 60 seconds of idle time. (GitHub issue #8320 is resolved.)
-
-### 4. Stop Hook Timing Limitation
-
-The Stop hook fires BEFORE the current message is written to the transcript. This means:
-
-- Hook can only analyze previous messages (one message behind)
-- Cannot detect whether the current response asked questions
-- Unsuitable for analyzing the response that triggered it
-
-### 5. Upstream Modification is More Reliable
-
-Modifying prompts BEFORE Claude processes them (UserPromptSubmit) is far more effective than trying to correct behavior AFTER Claude has composed a response (Stop hook blocking). Success rate: 100% vs ~30-40%.
-
----
-
-## References
-
-### Official Documentation
-
-- [Claude Code Hooks Reference](https://docs.anthropic.com/en/docs/claude-code/hooks)
-- [Claude Code Overview](https://docs.anthropic.com/en/docs/claude-code/overview)
-
-### GitHub Issues to Track
-
-- [Issue #8320](https://github.com/anthropics/claude-code/issues/8320): idle_prompt - RESOLVED (it works)
-- [Issue #10346](https://github.com/anthropics/claude-code/issues/10346): Missing AskUserQuestion documentation
-- [Issue #11964](https://github.com/anthropics/claude-code/issues/11964): Notification hook events missing notification_type
-
-### Tutorials & Examples
-
-- [Claude Code Hooks Mastery (GitHub)](https://github.com/disler/claude-code-hooks-mastery)
-- [Hook Schemas Reference (Gist)](https://gist.github.com/FrancisBourre/50dca37124ecc43eaf08328cdcccdb34)
+No other dependencies. The script is self-contained.

@@ -1,0 +1,20 @@
+{
+  "description": "V1 hook command signatures and their v2 equivalents",
+  "signatures": ["claudeman/dedup.js", "claudeman/notify.js"],
+  "profileReplacements": {
+    "gofmt": {
+      "profile": "go",
+      "description": "gofmt and goimports hooks are now bundled in the go profile"
+    }
+  },
+  "pluginReplacements": {
+    "q-enforce": {
+      "name": "claude-ask-questions",
+      "marketplace": "scottrigby/claude-ask-questions",
+      "description": "Enforce AskUserQuestion tool usage"
+    }
+  },
+  "conversions": {
+    "node /home/node/.claude/claudeman/dedup.js \"question-$TERM_ID\" node /home/node/.claude/claudeman/notify.js -t question -m \"Question ready\"": "notify question \"Question ready\""
+  }
+}

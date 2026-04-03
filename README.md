@@ -1,6 +1,6 @@
-# claudeman - Run Claude with Podman
+# claudeman - Run Claude Code with Devcontainer Profiles
 
-Run [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) in a sandboxed container with custom dependencies, using the upstream Anthropic container.
+Run [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) in a sandboxed container using the upstream Anthropic devcontainer configuration with profile-based feature selection.
 
 ## Why Run in a Container?
 
@@ -22,17 +22,29 @@ See [Anthropic's devcontainer docs](https://docs.anthropic.com/en/docs/claude-co
 
 ## Why This Tool?
 
-Claude Code's official container is actively evolving without version tags. While you could maintain a custom Dockerfile, it quickly falls behind.
+Claude Code's official devcontainer is actively evolving. Claudeman solves this by:
 
-Claudeman solves this by:
+- Fetching the latest upstream Anthropic .devcontainer directory fresh each run
+- Merging your profile's features, hooks, domains, and caches on top
+- Using the standard [devcontainer spec](https://containers.dev/) for customization
+- Leveraging 1000+ community features from containers.dev
+- Audio notifications on the host when Claude finishes tasks or has questions
+- Per-project isolation with multiple Claude instances running simultaneously
+- Auto-focusing the correct terminal tab when a notification arrives
+- Persistent dependency caches across container restarts (Go modules, pip, cargo, npm) |
 
-- Fetching the latest upstream Dockerfile on each run
-- Appending your dependency fragments at build time
-- Staying current with Anthropic's updates automatically
+## Architecture
 
-## Prerequisites
+Claudeman runs Claude Code sessions in Podman (or Docker) containers, building on the standard [devcontainer spec](https://containers.dev/). It adds a concept of **profiles** — named configurations that bundle devcontainer features, firewall domains, dependency caches, and hooks. CLI commands manage profiles and their components (`feature`, `domain`, `profile`, `hook`). A single **listener** process runs on the host and serves all container sessions — handling audio notifications, dialog prompts, terminal tab focusing, and browser opens (including OAuth callback proxying for auth).
 
-- [Podman CLI](https://podman.io/)
+For detailed design decisions, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Requirements
+
+- [Podman CLI](https://podman.io/) or Docker
+- Node.js 18+ (for CLI and listener)
+- macOS (for audio notifications; optional)
+- Supported terminal: Ghostty 1.3.0+, Terminal.app, or iTerm2 (for tab focusing; optional)
 
 ## Installation
 
@@ -42,167 +54,182 @@ Homebrew (recommended):
 brew install scottrigby/tap/claudeman
 ```
 
-Or clone this repository and symlink the script globally:
+Or clone this repository:
 
 ```bash
 git clone https://github.com/scottrigby/claudeman ~/claudeman
+cd ~/claudeman && npm install
 sudo ln -s ~/claudeman/claudeman /usr/local/bin/claudeman
 ```
 
-## Usage
-
-From any project directory, simply run:
+## Quick Start
 
 ```bash
-claudeman run
-```
-
-This will:
-
-- Download the latest upstream Anthropic Dockerfile
-- Append selected dependency fragments (if any via `--deps=`)
-- Build the container image
-- Create a `.claude` directory if it doesn't exist
-- Merge selected hooks into `.claude/settings.json` (if any via `--hooks=`)
-- Start Claude Code in YOLO mode
-
-### Examples
-
-```bash
-claudeman run                                  # Minimal (no deps, no hooks)
-claudeman run --deps=go --hooks=prettier       # Go + prettier formatting
-claudeman run --hooks=prettier,questions       # Prettier + notifications
-claudeman run --deps=all --hooks=all           # Everything
-claudeman run -- bash                          # Shell access
-claudeman listen                               # Start notification listener
-claudeman deps                                 # List available deps
-claudeman hooks                                # List available hooks
-```
-
-### Run Options
-
-| Flag            | Description                                             |
-| --------------- | ------------------------------------------------------- |
-| `--deps=DEPS`   | Dependencies to install (go,python,rust,playwright,all) |
-| `--hooks=HOOKS` | Hooks to enable (prettier,gofmt,q-notify,q-enforce,all) |
-
-### Listen Options
-
-| Flag                | Description                   |
-| ------------------- | ----------------------------- |
-| `-p, --port <port>` | Listener port (default: 8080) |
-
-## Audio Notifications
-
-Optional macOS notifications when Claude finishes tasks.
-
-In a new tab, start the notification listener:
-
-```bash
+# Start notification listener (keep running in a separate terminal tab)
 claudeman listen
+
+# Initialize hooks in your project
+claudeman init
+
+# Run with a profile
+claudeman run --profile=go
 ```
 
-One listener instance handles all claudeman sessions. Notifications will activate the correct terminal tab for each session automatically.
+## Configuration
 
-### Supported Terminals
+Claudeman separates Claude's project config from user config:
 
-| Terminal                        | Minimum Version | Notes                                                                                |
-| ------------------------------- | --------------- | ------------------------------------------------------------------------------------ |
-| [Ghostty](https://ghostty.org/) | 1.3.0+          | Requires [AppleScript support](https://ghostty.org/docs/install/release-notes/1-3-0) |
-| Terminal.app                    | Any             | Built-in macOS terminal                                                              |
-| [iTerm2](https://iterm2.com/)   | Any             | Popular third-party terminal                                                         |
+- **Project scope** (`.claude/`) — settings, hooks, CLAUDE.md. Persists and is version-controllable.
+- **User config** (`.claude-config/`) — auth credentials, plugins cache, session state. Persists across sessions but is gitignored (contains credentials).
 
-## Features
+Both scopes persist across sessions. Use `--scope project` to share with collaborators (committed to git), or `--scope user` for personal config (gitignored via `.claude-config/`).
 
-- **Opt-in deps**: Go, Python, Rust, Playwright (select with `--deps=`)
-- **Opt-in hooks**: Formatting, notifications, question enforcement (select with `--hooks=`)
-- **Audio notifications**: macOS notifications when Claude asks questions (optional, via `--hooks=questions`)
-- **Sandboxed**: Container isolation with access only to current directory
-- **Extensible**: Add custom deps and hooks via XDG config directories
+## Commands
 
-## Dependencies
-
-Dependencies are installed at build time via Containerfile fragments (`.cf` files). Select which deps to include with `--deps=`.
-
-**Available deps:**
+### Initialization
 
 ```bash
-claudeman deps  # List available dependencies
+claudeman init                     # Set up hooks + CLAUDE.md in project
+claudeman init --scope project     # Write hooks to .claude/ (shared with team)
+claudeman cleanup                  # Remove notification hooks (inverse of init)
 ```
 
-| Name             | Description                   |
-| ---------------- | ----------------------------- |
-| go               | Go toolchain + linters        |
-| python           | Python 3 + pip + venv         |
-| rust             | Rust + Cargo                  |
-| playwright       | Playwright + Chromium browser |
-| whitespace-tools | newline and trailingspace     |
+This creates notification hook configuration and a sample CLAUDE.md with project instructions.
 
-**Usage:**
+### Listener
 
 ```bash
-claudeman run --deps=go              # Just Go
-claudeman run --deps=go,python       # Go and Python
-claudeman run --deps=all             # Everything
-claudeman run                        # No extra deps (minimal)
+claudeman listen                   # Start notification listener (keep running)
 ```
 
-**Custom deps:**
+One listener serves all running claudeman sessions. Receives notifications and browser open requests, announces via audio, shows a dialog, and focuses the originating terminal tab on OK. Listens on port 8080 by default.
 
-Create your own `.cf` files in `~/.config/claudeman/deps/` to override bundled deps or add new ones. Project-specific deps go in `.claude/deps/` and are always included.
-
-Fragments are appended to the upstream Claude Code Dockerfile, which uses a `node:20` base image (Debian). Use `USER root` for apt-get, then `USER node` to return to the default user.
-
-**Adding dependencies mid-session:**
-
-1. Stop claudeman (`Ctrl+C`)
-2. Run with new deps: `claudeman run --deps=go,playwright`
-3. Use `/resume` in Claude to continue where you left off
-
-## Hooks
-
-Hooks are JSON files that configure Claude Code automation. Select which hooks to enable with `--hooks=`.
-
-**Available hooks:**
+### Run
 
 ```bash
-claudeman hooks  # List available hooks
+claudeman run                      # Run with default (minimal) profile
+claudeman run --profile=go         # Run with Go profile
+claudeman run --profile=full       # Run with all features
+claudeman run --env MY_VAR=value   # Set container env var (repeatable)
+claudeman run -- bash              # Shell access
+claudeman run -- --worktree feat   # Git worktree mode
 ```
 
-| Name       | Requires         | Description                                     |
-| ---------- | ---------------- | ----------------------------------------------- |
-| prettier   | -                | Auto-format with prettier                       |
-| whitespace | whitespace-tools | Fix trailing spaces and newline at EOF          |
-| gofmt      | go               | Auto-format Go files with gofmt and goimports   |
-| q-notify   | -                | Notify when Claude asks a question              |
-| q-enforce  | -                | Force Claude to always use AskUserQuestion tool |
+Environment variables are passed securely — the generated devcontainer.json contains `${localEnv:KEY:}` references, not literal values.
 
-Hooks with dependencies will error if the required dep is not selected.
+### Profiles
 
-**Usage:**
+Profiles are named collections of devcontainer features, firewall domains, caches, and hooks.
 
 ```bash
-claudeman run --hooks=prettier              # Just prettier formatting
-claudeman run --hooks=prettier,q-notify     # Prettier + notifications
-claudeman run --hooks=all                   # All hooks
-claudeman run                               # No hooks (minimal)
+claudeman profile list             # List all profiles
+claudeman profile info go          # Show profile details
+claudeman profile create myprof    # Create new profile
+claudeman profile delete myprof    # Delete profile
 ```
 
-**Custom hooks:** Create your own `.json` files in `~/.config/claudeman/hooks/` to override bundled hooks or add new ones.
+Profiles are loaded from three locations (more specific wins):
 
-**How it works:**
+1. **app** — Bundled in `profiles/` (read-only)
+2. **global** — `~/.config/claudeman/profiles/` (personal, all projects)
+3. **project** — `.claude/claudeman/profiles/` (shared with team)
 
-- Selected hooks are merged into `.claude/settings.json` on each `claudeman run`
-- Non-hook user settings are preserved
-- Changes take effect on next session start
+| Profile | Description      | Features                     |
+| ------- | ---------------- | ---------------------------- |
+| minimal | Claude Code only | -                            |
+| go      | Go development   | go + linters + gofmt hooks   |
+| web     | Web development  | playwright                   |
+| full    | Everything       | go, python, rust, playwright |
 
-## Requirements
+### Features
 
-- [Podman CLI](https://podman.io/)
-- macOS (for audio notifications; optional)
-- Node.js (for listener; optional)
-- Supported terminal: Ghostty 1.3.0+, Terminal.app, or iTerm2 (for tab focusing; optional)
+Search and manage devcontainer features:
 
-## Architecture
+```bash
+claudeman feature search go        # Search containers.dev index
+claudeman feature info go          # Show feature details
+claudeman feature add go myprof    # Add feature to profile
+claudeman feature remove go myprof # Remove feature from profile
+```
 
-For detailed information about how claudeman works, including the notification system, hook architecture, and multi-session support, see [ARCHITECTURE.md](ARCHITECTURE.md).
+Browse all features: https://containers.dev/features
+
+### Firewall Domains
+
+The container firewall blocks outbound traffic by default. Profiles can declare `extraDomains` for tools that need runtime network access (e.g., `go mod download`). The bundled `go` and `full` profiles include common domains.
+
+```bash
+claudeman domain list              # Show all allowed domains
+claudeman domain list go           # Show domains for a profile
+claudeman domain add pypi.org dev  # Add domain to a profile
+claudeman domain remove pypi.org dev
+```
+
+One-off domains via flag:
+
+```bash
+claudeman run --profile=go --extra-domains=example.com
+```
+
+## Persistent Caches
+
+Build and dependency caches persist across container restarts via `.claude/claudeman/cache/`. Profiles declare `cacheEnv` to map environment variables to cache subdirectories:
+
+```json
+{
+  "cacheEnv": {
+    "GOMODCACHE": "go/mod",
+    "GOPATH": "go/path"
+  }
+}
+```
+
+The bundled `go` and `full` profiles include cache settings for their respective tools. View a profile's cache config with `claudeman profile info <name>`.
+
+## Migrating from v1
+
+| Aspect            | v1                           | v2                       |
+| ----------------- | ---------------------------- | ------------------------ |
+| Customization     | Containerfile fragments      | Devcontainer features    |
+| Feature ecosystem | Manual `.cf` creation        | 1000+ community features |
+| Configuration     | `--deps` and `--hooks` flags | Profile-based selection  |
+| IDE integration   | Terminal-focused             | VS Code native support   |
+
+### Breaking Changes
+
+| v1                            | v2                                                                                                                                                                           |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claudeman run --deps=go`     | `claudeman run --profile=go`                                                                                                                                                 |
+| `claudeman run --hooks=X`     | Hooks are bundled in profiles (e.g., `go` profile includes gofmt); `q-enforce` replaced by [claude-ask-questions](https://github.com/scottrigby/claude-ask-questions) plugin |
+| `claudeman deps`              | `claudeman feature search`                                                                                                                                                   |
+| `claudeman hooks`             | Hooks bundled in profiles; notification hooks via `init`                                                                                                                     |
+| `.cf` Containerfile fragments | Devcontainer features                                                                                                                                                        |
+| `~/.config/claudeman/deps/`   | `~/.config/claudeman/profiles/`                                                                                                                                              |
+| `~/.config/claudeman/hooks/`  | No longer used                                                                                                                                                               |
+
+> **Note on whitespace tools:** v1 included `whitespace-tools` (trailing space and EOF newline enforcement). claudeman v2 does not use them — current Claude models handle whitespace reliably. If you want them for other purposes, they are available as a standalone devcontainer feature: `claudeman feature add ghcr.io/scottrigby/whitespace-tools/whitespace-tools:1 <profile>`
+
+### Migration Steps
+
+1. **Update run commands**: Replace `--deps=X` with `--profile=X`
+
+2. **Convert custom `.cf` files to devcontainer features**: If you had custom Containerfile fragments, create devcontainer features instead. See [devcontainers/feature-starter](https://github.com/devcontainers/feature-starter) for creating custom features.
+
+3. **Migrate v1 hooks and deps**: Use the new migrate command to automate cleanup:
+
+   ```bash
+   claudeman migrate remove-v1-hooks   # Remove old hooks (prevents duplicate notifications)
+   claudeman migrate convert-v1-hooks  # Or replace with v2 equivalents instead
+   claudeman migrate remove-v1-deps    # Delete old .cf dep files
+   claudeman migrate convert-v1-deps   # Map .cf deps to v2 profiles
+   ```
+
+   Run `claudeman migrate --help` for filtering flags (`--scope`, `--hooks`, `--deps`, `-y`).
+
+4. **Remove v1 scripts from the project-scope claudeman directory** (`.claude/claudeman/` is also used by v2 for project-scope profiles, so remove only the v1 scripts — not the whole directory):
+
+   ```bash
+   rm -f .claude/claudeman/notify.js .claude/claudeman/dedup.js .claude/claudeman/enforce-questions.sh
+   ```
+
+5. **Set up notifications**: Run `claudeman init` in your project to configure notification hooks.

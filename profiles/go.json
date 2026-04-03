@@ -1,0 +1,35 @@
+{
+  "name": "go",
+  "description": "Go development with linters",
+  "features": {
+    "ghcr.io/devcontainers/features/go:1": {
+      "version": "latest"
+    }
+  },
+  "extraDomains": [
+    "proxy.golang.org",
+    "sum.golang.org",
+    "storage.googleapis.com"
+  ],
+  "cacheEnv": {
+    "GOMODCACHE": "go/mod",
+    "GOPATH": "go/path"
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path | select(endswith(\".go\"))' | xargs -r gofmt -w"
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path | select(endswith(\".go\"))' | xargs -r goimports -w"
+          }
+        ]
+      }
+    ]
+  }
+}
