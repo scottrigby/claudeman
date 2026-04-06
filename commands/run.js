@@ -16,6 +16,14 @@ import {
 } from "../helpers/devcontainer.js";
 import { mergeHooks, removeHooks } from "../lib/merge-hooks.js";
 
+const VOICE_DOMAINS = ["claude.ai", "bridge.claudeusercontent.com"];
+const VOICE_ENV = {
+  PULSE_SERVER: "tcp:host.containers.internal:4713",
+  PULSE_LATENCY_MSEC: "60",
+  VOICE_STREAM_BASE_URL: "wss://api.anthropic.com",
+};
+const VOICE_FEATURE_DIR = path.join(SCRIPT_DIR, "features", "voice-audio");
+
 async function runDevcontainer(
   profileName,
   workspaceFolder,
@@ -23,6 +31,7 @@ async function runDevcontainer(
   extraDomains = [],
   localDevcontainerDir = null,
   envVars = [],
+  voice = false,
 ) {
   // Check for container runtime
   if (!CONTAINER_RUNTIME) {
@@ -175,6 +184,7 @@ async function runDevcontainer(
       "host.containers.internal",
       ...profileDomains,
       ...extraDomains,
+      ...(voice ? VOICE_DOMAINS : []),
     ];
     const uniqueDomains = [...new Set(allExtraDomains)];
     if (uniqueDomains.length > 0) {
@@ -235,6 +245,15 @@ async function runDevcontainer(
     // Values live only in process memory; the devcontainer.json gets
     // ${localEnv:KEY:} references, not literal values.
     const userEnvRefs = {};
+
+    // Inject voice env vars (before user --env so user can override)
+    if (voice) {
+      for (const [key, value] of Object.entries(VOICE_ENV)) {
+        process.env[key] = value;
+        userEnvRefs[key] = `\${localEnv:${key}:}`;
+      }
+    }
+
     for (const entry of envVars) {
       const eqIdx = entry.indexOf("=");
       if (eqIdx === -1) continue;
@@ -244,12 +263,41 @@ async function runDevcontainer(
       userEnvRefs[key] = `\${localEnv:${key}:}`;
     }
 
+    // TEMPORARY: When --voice is set, use <workspace>/.devcontainer/ as the
+    // devcontainer dir so local feature paths resolve correctly. The devcontainer
+    // CLI validates that local features are children of <workspace>/.devcontainer/.
+    // This will be replaced with a published remote feature reference.
+    const voiceFeatures = {};
+    if (voice) {
+      const wsDevcontainerDir = path.join(workspaceFolder, ".devcontainer");
+      fs.mkdirSync(wsDevcontainerDir, { recursive: true });
+      // Copy Dockerfile and firewall script into workspace .devcontainer/
+      for (const f of ["Dockerfile", "init-firewall.sh"]) {
+        fs.copyFileSync(
+          path.join(devcontainerDir, f),
+          path.join(wsDevcontainerDir, f),
+        );
+      }
+      // Copy voice-audio feature
+      fs.cpSync(
+        VOICE_FEATURE_DIR,
+        path.join(wsDevcontainerDir, "voice-audio"),
+        {
+          recursive: true,
+        },
+      );
+      devcontainerDir = wsDevcontainerDir;
+      voiceFeatures["./voice-audio"] = {};
+      console.log("Voice mode: injecting audio feature + PulseAudio env vars");
+    }
+
     const config = {
       ...upstreamConfig,
       // Merge profile features with any upstream features
       features: {
         ...(upstreamConfig.features || {}),
         ...(profile.features || {}),
+        ...voiceFeatures,
       },
       // Point CLAUDE_CONFIG_DIR to .claude-config (auth, plugins cache, session
       // state). Separate from .claude/ (project scope) to avoid scope collapse.
@@ -367,12 +415,17 @@ export const runCmd = new Command("run")
     (val, acc) => [...acc, val],
     [],
   )
+  .option(
+    "--voice",
+    "Enable voice dictation (requires PulseAudio on host via claudeman listen)",
+  )
   .action(async (claudeExtraArgs, opts) => {
     const profileName = opts.profile;
     const workspaceFolder = opts.workspace || process.cwd();
     const extraDomains = opts.extraDomains || [];
     const devcontainerDir = opts.devcontainerDir || null;
     const envVars = opts.env || [];
+    const voice = opts.voice || false;
     await runDevcontainer(
       profileName,
       workspaceFolder,
@@ -380,5 +433,6 @@ export const runCmd = new Command("run")
       extraDomains,
       devcontainerDir,
       envVars,
+      voice,
     );
   });

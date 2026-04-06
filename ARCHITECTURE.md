@@ -67,6 +67,14 @@ claudeman run --profile=go
 
 **Why temp directory?** The devcontainer CLI requires files on disk. Using a temp directory keeps the project clean and ensures we always use the latest upstream config.
 
+**Why copy local features to `<workspace>/.devcontainer/`?** The `@devcontainers/cli`
+validates that local feature paths (e.g., `./voice-audio`) resolve to a child of
+`<workspace-folder>/.devcontainer/`, not the `--config` file's directory. The check
+lives in `devContainersSpecCLI.js` — it computes
+`path.relative(path.join(workspaceFolder, ".devcontainer"), resolvedFeaturePath)` and
+rejects the feature if the result contains `..`. So `--voice` copies the feature into
+the workspace's `.devcontainer/voice-audio/` temporarily, and cleans it up on exit.
+
 **Why fetch and merge?** Anthropic's devcontainer config evolves without version tags. By fetching the upstream devcontainer.json and merging (not replacing), we automatically inherit new build args, environment variables, VS Code settings, and other improvements while only overriding what we specifically need (name, mounts, features).
 
 **Why stop and remove on exit?** Clean slate each run. Container state (history, config) is preserved via bind mounts to `PWD/.claude/`, so stopping the container doesn't lose work.

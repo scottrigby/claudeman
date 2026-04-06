@@ -112,6 +112,22 @@ describe("run command", () => {
     });
   });
 
+  describe("--voice flag", () => {
+    it("accepts --voice flag", async () => {
+      const result = await execa(CLI, ["run", "--voice", "--profile=minimal"], {
+        cwd: fixture.dir,
+        reject: false,
+      });
+      expect(result.stderr).not.toContain("unknown option");
+    });
+
+    it("shows --voice in help", async () => {
+      const { stdout } = await execa(CLI, ["run", "-h"]);
+      expect(stdout).toContain("--voice");
+      expect(stdout).toContain("voice dictation");
+    });
+  });
+
   describe("--env flag", () => {
     it("accepts single env var", async () => {
       const result = await execa(

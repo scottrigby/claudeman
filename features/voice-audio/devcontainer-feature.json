@@ -1,0 +1,8 @@
+{
+  "id": "voice-audio",
+  "version": "1.0.0",
+  "name": "Voice Audio (PulseAudio client + ALSA bridge)",
+  "description": "Installs audio packages for Claude Code voice dictation via PulseAudio TCP passthrough from the host.",
+  "options": {},
+  "installsAfter": []
+}

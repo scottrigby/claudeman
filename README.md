@@ -35,7 +35,7 @@ Claude Code's official devcontainer is actively evolving. Claudeman solves this 
 
 ## Architecture
 
-Claudeman runs Claude Code sessions in Podman (or Docker) containers, building on the standard [devcontainer spec](https://containers.dev/). It adds a concept of **profiles** — named configurations that bundle devcontainer features, firewall domains, dependency caches, and hooks. CLI commands manage profiles and their components (`feature`, `domain`, `profile`, `hook`). A single **listener** process runs on the host and serves all container sessions — handling audio notifications, dialog prompts, terminal tab focusing, and browser opens (including OAuth callback proxying for auth).
+Claudeman runs Claude Code sessions in Podman (or Docker) containers, building on the standard [devcontainer spec](https://containers.dev/). It adds a concept of **profiles** — named configurations that bundle devcontainer features, firewall domains, dependency caches, and hooks. CLI commands manage profiles and their components (`feature`, `domain`, `profile`). A single **listener** process runs on the host and serves all container sessions — handling audio notifications, dialog prompts, terminal tab focusing, and browser opens (including OAuth callback proxying for auth).
 
 For detailed design decisions, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
