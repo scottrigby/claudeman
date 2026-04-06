@@ -352,6 +352,7 @@ async function runDevcontainer(
 export const runCmd = new Command("run")
   .description("Start Claude in a devcontainer (stops on exit)")
   .passThroughOptions()
+  .argument("[args...]", "Extra arguments passed to claude after --")
   .option("--profile <name>", "Profile to use", "minimal")
   .option("--workspace <path>", "Workspace folder")
   .option(
@@ -366,13 +367,12 @@ export const runCmd = new Command("run")
     (val, acc) => [...acc, val],
     [],
   )
-  .action(async (opts, cmd) => {
+  .action(async (claudeExtraArgs, opts) => {
     const profileName = opts.profile;
     const workspaceFolder = opts.workspace || process.cwd();
     const extraDomains = opts.extraDomains || [];
     const devcontainerDir = opts.devcontainerDir || null;
     const envVars = opts.env || [];
-    const claudeExtraArgs = cmd.args;
     await runDevcontainer(
       profileName,
       workspaceFolder,
