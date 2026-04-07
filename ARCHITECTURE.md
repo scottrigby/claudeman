@@ -95,6 +95,37 @@ causing plugins and hooks to appear duplicated.
 Note: claudeman's own `--scope global` (host `~/.config/claudeman/`) is for
 claudeman profiles, not Claude Code config. It persists on the host independently.
 
+### Sensitive files in `.claude-config/`
+
+`.claude-config/` is gitignored and already contains OAuth credentials. It is
+the recommended location for any sensitive per-project files that Claude needs
+inside the container (e.g., kubeconfig, cloud credentials). Since it's already
+bind-mounted, no additional mount configuration is needed — just place the file
+and set the corresponding env var via `--env`.
+
+## Kubernetes Profile (`k8s`)
+
+The `k8s` profile installs kubectl and Helm via the
+`kubectl-helm-minikube` devcontainer feature (with minikube disabled).
+
+**Kubeconfig isolation:** Users export a single cluster context into
+`.claude-config/kubeconfig` using `kubectl config view --minify --flatten`.
+This avoids exposing the full `~/.kube/config` (which may contain credentials
+for unrelated clusters) and keeps the file gitignored. See `profiles/k8s.md`.
+
+**Container access to local clusters:** Local cluster API servers (Kind,
+minikube) listen on `127.0.0.1`, which doesn't resolve inside the container.
+The exported kubeconfig rewrites the address to `host.containers.internal`
+(Podman's host bridge, already in the firewall allowlist). TLS verification
+is skipped for local clusters since their certs are issued for `127.0.0.1`.
+Remote clusters (EKS, GKE, etc.) work without modification — their API server
+addresses are public hostnames, added via `--extra-domains`.
+
+**Firewall domains:** The profile whitelists Helm chart registries
+(`charts.bitnami.com`, `charts.jetstack.io`, etc.) and documentation sites.
+Registries that support OCI (e.g., Bitnami via `registry-1.docker.io`) are
+preferred, but HTTP chart repos are included as an example for charts that don't offer OCI.
+
 ## Firewall Domains
 
 The upstream devcontainer runs `init-firewall.sh` which blocks all outbound
