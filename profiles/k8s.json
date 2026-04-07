@@ -1,0 +1,23 @@
+{
+  "name": "k8s",
+  "description": "Kubernetes development with kubectl and Helm",
+  "features": {
+    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+      "kubectl": "latest",
+      "helm": "latest",
+      "minikube": "none"
+    }
+  },
+  "extraDomains": [
+    "kubernetes.io",
+    "helm.sh",
+    "artifacthub.io",
+    "charts.bitnami.com",
+    "registry-1.docker.io",
+    "charts.jetstack.io",
+    "traefik.github.io",
+    "doc.traefik.io",
+    "cert-manager.io",
+    "cloudnative-pg.github.io"
+  ]
+}

@@ -29,6 +29,15 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for design context.
 
 ---
 
+## Mounts
+
+- [ ] Custom mount support in profiles — `mounts` field for additional bind
+      mounts (e.g., `~/.kube` for kubectl access, `~/.aws` for AWS CLI).
+      Currently workaround is placing files in `.claude-config/` (already
+      mounted) and setting env vars via `--env`.
+
+---
+
 ## Hooks
 
 - [ ] `hook add/remove/list` — manage hooks in profiles, same pattern as
