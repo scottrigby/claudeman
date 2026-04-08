@@ -34,11 +34,6 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for design context.
 - [ ] Wildcard domain resolution — support `*.example.com` in `extraDomains`
       so all subdomains are whitelisted without listing each one individually.
       Use case: `*.ingress.replicatedcluster.com` for CMX cluster access.
-- [ ] Raw IP support in `extraDomains` — detect IPs and add to ipset directly
-      instead of running `dig` (which fails on IPs and crashes the firewall).
-- [ ] Abstract OAuth listener proxy — generalize the browser-open relay to
-      support any CLI tool's OAuth flow (e.g., `replicated login`) inside
-      containers, not just Claude Code's `/login`.
 
 ---
 
@@ -69,6 +64,15 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for design context.
 - [ ] Voice mode in containers — mic access requires audio socket
       passthrough or host-side proxy via `claudeman listen`.
       See https://code.claude.com/docs/en/voice-dictation
+
+---
+
+## Auth
+
+
+- [ ] Abstract OAuth listener proxy — generalize the browser-open relay to
+      support any CLI tool's OAuth flow (e.g., `replicated login`) inside
+      containers, not just Claude Code's `/login`.
 
 ---
 
