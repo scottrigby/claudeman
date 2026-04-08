@@ -29,6 +29,19 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for design context.
 
 ---
 
+## Firewall
+
+- [ ] Wildcard domain resolution — support `*.example.com` in `extraDomains`
+      so all subdomains are whitelisted without listing each one individually.
+      Use case: `*.ingress.replicatedcluster.com` for CMX cluster access.
+- [ ] Raw IP support in `extraDomains` — detect IPs and add to ipset directly
+      instead of running `dig` (which fails on IPs and crashes the firewall).
+- [ ] Abstract OAuth listener proxy — generalize the browser-open relay to
+      support any CLI tool's OAuth flow (e.g., `replicated login`) inside
+      containers, not just Claude Code's `/login`.
+
+---
+
 ## Mounts
 
 - [ ] Custom mount support in profiles — `mounts` field for additional bind
