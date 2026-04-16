@@ -89,7 +89,7 @@ causing plugins and hooks to appear duplicated.
 **Mounts:**
 
 - `PWD/.claude-config/` → `/workspace/.claude-config/` (auth + plugins cache)
-- `PWD/.claude/.bash_history` → `/commandhistory/.bash_history`
+- `PWD/.claude-config/.bash_history` → `/commandhistory/.bash_history`
 - `PWD/` → `/workspace/` (upstream workspaceMount — covers `.claude/` + source)
 
 Note: claudeman's own `--scope global` (host `~/.config/claudeman/`) is for

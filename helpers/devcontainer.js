@@ -76,6 +76,25 @@ export function getTerminalId() {
 //   return { dir, configRaw };
 // }
 
+// Ensure .bash_history exists at the user-scope location (.claude-config/).
+// v2.0.0 stored this in .claude/ (project scope); as of v2.0.1 it is moved
+// to .claude-config/ (user scope, gitignored) to avoid exposing sensitive
+// command history. This move code must remain for backwards compatibility
+// through v2.
+// Returns the history file path for use in bind mounts.
+export function ensureHistoryFile(claudeConfigDir, claudeDir) {
+  const historyFile = path.join(claudeConfigDir, ".bash_history");
+  if (!fs.existsSync(historyFile)) {
+    const oldHistoryFile = path.join(claudeDir, ".bash_history");
+    if (fs.existsSync(oldHistoryFile)) {
+      fs.renameSync(oldHistoryFile, historyFile);
+    } else {
+      fs.writeFileSync(historyFile, "");
+    }
+  }
+  return historyFile;
+}
+
 // Run `devcontainer up` capturing stdout (JSON result) while streaming
 // stderr with normalized line endings to prevent staircase output from
 // the postStartCommand.
