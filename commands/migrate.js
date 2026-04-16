@@ -13,7 +13,11 @@ import {
   ensureProfileDir,
   promptYN,
 } from "../helpers/settings.js";
-import { loadDevcontainerFiles, devcontainerUp } from "../helpers/devcontainer.js";
+import {
+  loadDevcontainerFiles,
+  ensureHistoryFile,
+  devcontainerUp,
+} from "../helpers/devcontainer.js";
 import { mergeHooks } from "../lib/merge-hooks.js";
 import {
   getSettingsPaths,
@@ -416,8 +420,10 @@ async function installPluginInContainer(plugin, workspaceFolder) {
 
   const claudeDir = path.join(workspaceFolder, ".claude");
   if (!fs.existsSync(claudeDir)) fs.mkdirSync(claudeDir, { recursive: true });
-  const historyFile = path.join(claudeDir, ".bash_history");
-  if (!fs.existsSync(historyFile)) fs.writeFileSync(historyFile, "");
+  const claudeConfigDir = path.join(workspaceFolder, ".claude-config");
+  if (!fs.existsSync(claudeConfigDir))
+    fs.mkdirSync(claudeConfigDir, { recursive: true });
+  const historyFile = ensureHistoryFile(claudeConfigDir, claudeDir);
 
   let containerId = null;
   let devcontainerDir = null;

@@ -13,6 +13,7 @@ import {
 import {
   getTerminalId,
   loadDevcontainerFiles,
+  ensureHistoryFile,
   devcontainerUp,
 } from "../helpers/devcontainer.js";
 import { mergeHooks, removeHooks } from "../lib/merge-hooks.js";
@@ -126,11 +127,10 @@ async function runDevcontainer(
       fs.writeFileSync(gitignorePath, ".claude-config\n");
     }
 
-    // Ensure .bash_history exists (bind mount requires existing file)
-    const historyFile = path.join(claudeDir, ".bash_history");
-    if (!fs.existsSync(historyFile)) {
-      fs.writeFileSync(historyFile, "");
-    }
+    // Ensure .bash_history exists (bind mount requires existing file).
+    // Stored in .claude-config (user scope, gitignored) rather than .claude
+    // (project scope) since history may contain sensitive input.
+    const historyFile = ensureHistoryFile(claudeConfigDir, claudeDir);
 
     // Merge profile hooks into project-scope settings.json (removed on exit)
     if (profile.hooks) {
