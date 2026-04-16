@@ -13,6 +13,7 @@ import {
 import {
   getTerminalId,
   loadDevcontainerFiles,
+  devcontainerUp,
 } from "../helpers/devcontainer.js";
 import { mergeHooks, removeHooks } from "../lib/merge-hooks.js";
 
@@ -295,11 +296,7 @@ async function runDevcontainer(
     console.log("Starting devcontainer...\n");
 
     // Run devcontainer up and capture output for container ID
-    const upResult = execSync(`"${DEVCONTAINER_CLI}" ${upArgs.join(" ")}`, {
-      cwd: workspaceFolder,
-      encoding: "utf8",
-      stdio: ["inherit", "pipe", "inherit"],
-    });
+    const upResult = await devcontainerUp(DEVCONTAINER_CLI, upArgs, workspaceFolder);
 
     // Parse container ID from output (JSON format)
     try {

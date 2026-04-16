@@ -13,7 +13,7 @@ import {
   ensureProfileDir,
   promptYN,
 } from "../helpers/settings.js";
-import { loadDevcontainerFiles } from "../helpers/devcontainer.js";
+import { loadDevcontainerFiles, devcontainerUp } from "../helpers/devcontainer.js";
 import { mergeHooks } from "../lib/merge-hooks.js";
 import {
   getSettingsPaths,
@@ -463,14 +463,16 @@ async function installPluginInContainer(plugin, workspaceFolder) {
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 
     console.log("  Starting container...");
-    const upResult = execSync(
-      `"${DEVCONTAINER_CLI}" up --docker-path ${CONTAINER_RUNTIME} --workspace-folder "${workspaceFolder}" --config "${configPath}"`,
-      {
-        cwd: workspaceFolder,
-        encoding: "utf8",
-        stdio: ["inherit", "pipe", "inherit"],
-      },
-    );
+    const upArgs = [
+      "up",
+      "--docker-path",
+      CONTAINER_RUNTIME,
+      "--workspace-folder",
+      workspaceFolder,
+      "--config",
+      configPath,
+    ];
+    const upResult = await devcontainerUp(DEVCONTAINER_CLI, upArgs, workspaceFolder);
 
     try {
       containerId = JSON.parse(upResult).containerId;

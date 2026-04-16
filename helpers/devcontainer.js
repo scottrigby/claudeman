@@ -2,7 +2,7 @@ import https from "https";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { execSync } from "child_process";
+import { execSync, spawn } from "child_process";
 import { VERSION, PATCHES_DIR } from "./settings.js";
 
 export function fetchUrl(url) {
@@ -75,6 +75,38 @@ export function getTerminalId() {
 //   fs.writeFileSync(path.join(dir, "init-firewall.sh"), firewall);
 //   return { dir, configRaw };
 // }
+
+// Run `devcontainer up` capturing stdout (JSON result) while streaming
+// stderr with normalized line endings to prevent staircase output from
+// the postStartCommand.
+export function devcontainerUp(cli, args, cwd) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(cli, args, {
+      cwd,
+      stdio: ["inherit", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+
+    proc.stdout.on("data", (data) => {
+      stdout += data.toString();
+    });
+
+    proc.stderr.on("data", (data) => {
+      process.stderr.write(data.toString().replace(/\r?\n/g, "\r\n"));
+    });
+
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`devcontainer up failed with exit code ${code}`));
+      } else {
+        resolve(stdout);
+      }
+    });
+
+    proc.on("error", reject);
+  });
+}
 
 // Temporarily using local patched files (fork DMCA'd).
 export function loadDevcontainerFiles() {
