@@ -49,10 +49,11 @@
     "NODE_OPTIONS": "--max-old-space-size=4096",
     "CLAUDE_CONFIG_DIR": "/home/node/.claude",
     "POWERLEVEL9K_DISABLE_GITSTATUS": "true",
-    "WHITELIST_DOMAINS": "${localEnv:WHITELIST_DOMAINS:}"
+    "WHITELIST_DOMAINS": "${localEnv:WHITELIST_DOMAINS:}",
+    "CLAUDEMAN_NO_FIREWALL": "${localEnv:CLAUDEMAN_NO_FIREWALL:}"
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
   "workspaceFolder": "/workspace",
-  "postStartCommand": "sudo WHITELIST_DOMAINS=\"$WHITELIST_DOMAINS\" /usr/local/bin/init-firewall.sh",
+  "postStartCommand": "if [ \"$CLAUDEMAN_NO_FIREWALL\" = \"1\" ]; then echo 'Firewall disabled (--no-firewall)'; else sudo WHITELIST_DOMAINS=\"$WHITELIST_DOMAINS\" /usr/local/bin/init-firewall.sh; fi",
   "waitFor": "postStartCommand"
 }
