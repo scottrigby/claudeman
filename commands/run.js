@@ -25,6 +25,7 @@ async function runDevcontainer(
   extraDomains = [],
   localDevcontainerDir = null,
   envVars = [],
+  noFirewall = false,
 ) {
   // Check for container runtime
   if (!CONTAINER_RUNTIME) {
@@ -180,6 +181,9 @@ async function runDevcontainer(
     const uniqueDomains = [...new Set(allExtraDomains)];
     if (uniqueDomains.length > 0) {
       process.env.WHITELIST_DOMAINS = uniqueDomains.join(" ");
+    }
+    if (noFirewall) {
+      process.env.CLAUDEMAN_NO_FIREWALL = "1";
     }
 
     let upstreamConfigRaw;
@@ -358,6 +362,7 @@ export const runCmd = new Command("run")
     (v) => v.split(",").filter(Boolean),
   )
   .option("--devcontainer-dir <path>", "Local devcontainer files")
+  .option("--no-firewall", "Disable network firewall (development only)")
   .option(
     "--env <KEY=VALUE>",
     "Set environment variable in container (repeatable)",
@@ -370,6 +375,7 @@ export const runCmd = new Command("run")
     const extraDomains = opts.extraDomains || [];
     const devcontainerDir = opts.devcontainerDir || null;
     const envVars = opts.env || [];
+    const noFirewall = opts.firewall === false;
     await runDevcontainer(
       profileName,
       workspaceFolder,
@@ -377,5 +383,6 @@ export const runCmd = new Command("run")
       extraDomains,
       devcontainerDir,
       envVars,
+      noFirewall,
     );
   });
