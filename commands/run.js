@@ -26,6 +26,8 @@ async function runDevcontainer(
   localDevcontainerDir = null,
   envVars = [],
   noFirewall = false,
+  claudeVersion = null,
+  buildNoCache = false,
 ) {
   // Check for container runtime
   if (!CONTAINER_RUNTIME) {
@@ -249,6 +251,13 @@ async function runDevcontainer(
       userEnvRefs[key] = `\${localEnv:${key}:}`;
     }
 
+    // Override CLAUDE_CODE_VERSION build arg if --claude-version was passed
+    if (claudeVersion) {
+      upstreamConfig.build = upstreamConfig.build || {};
+      upstreamConfig.build.args = upstreamConfig.build.args || {};
+      upstreamConfig.build.args.CLAUDE_CODE_VERSION = claudeVersion;
+    }
+
     const config = {
       ...upstreamConfig,
       // Merge profile features with any upstream features
@@ -296,6 +305,12 @@ async function runDevcontainer(
       "--config",
       path.join(devcontainerDir, "devcontainer.json"),
     ];
+
+    // --build-no-cache skips layer cache so CLAUDE_CODE_VERSION=latest
+    // re-resolves instead of reusing a stale cached layer.
+    if (buildNoCache) {
+      upArgs.push("--build-no-cache");
+    }
 
     console.log("Starting devcontainer...\n");
 
@@ -364,6 +379,11 @@ export const runCmd = new Command("run")
   .option("--devcontainer-dir <path>", "Local devcontainer files")
   .option("--no-firewall", "Disable network firewall (development only)")
   .option(
+    "--claude-version <version>",
+    "Pin Claude Code version (default: latest)",
+  )
+  .option("--build-no-cache", "Rebuild image without layer cache")
+  .option(
     "--env <KEY=VALUE>",
     "Set environment variable in container (repeatable)",
     (val, acc) => [...acc, val],
@@ -376,6 +396,8 @@ export const runCmd = new Command("run")
     const devcontainerDir = opts.devcontainerDir || null;
     const envVars = opts.env || [];
     const noFirewall = opts.firewall === false;
+    const claudeVersion = opts.claudeVersion || null;
+    const buildNoCache = opts.buildNoCache || false;
     await runDevcontainer(
       profileName,
       workspaceFolder,
@@ -384,5 +406,7 @@ export const runCmd = new Command("run")
       devcontainerDir,
       envVars,
       noFirewall,
+      claudeVersion,
+      buildNoCache,
     );
   });
