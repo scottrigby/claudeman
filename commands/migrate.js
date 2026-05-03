@@ -465,6 +465,11 @@ async function installPluginInContainer(plugin, workspaceFolder) {
       remoteEnv: { ...(upstreamConfig.remoteEnv || {}) },
     };
 
+    // Suppress BuildKit's animated progress TUI, which emits ANSI cursor-movement
+    // sequences that corrupt the terminal after the container starts.
+    config.build = config.build || {};
+    config.build.options = [...(config.build.options || []), "--progress=plain"];
+
     const configPath = path.join(devcontainerDir, "devcontainer.json");
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 
