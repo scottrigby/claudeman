@@ -258,6 +258,14 @@ async function runDevcontainer(
       upstreamConfig.build.args.CLAUDE_CODE_VERSION = claudeVersion;
     }
 
+    // Suppress BuildKit's animated progress TUI, which emits ANSI cursor-movement
+    // sequences that corrupt the terminal after the container starts.
+    upstreamConfig.build = upstreamConfig.build || {};
+    upstreamConfig.build.options = [
+      ...(upstreamConfig.build.options || []),
+      "--progress=plain",
+    ];
+
     const config = {
       ...upstreamConfig,
       // Merge profile features with any upstream features
