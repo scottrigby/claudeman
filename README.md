@@ -233,3 +233,14 @@ The bundled `go` and `full` profiles include cache settings for their respective
    ```
 
 5. **Set up notifications**: Run `claudeman init` in your project to configure notification hooks.
+
+## Releasing
+
+Releases use `npm version`, which bumps `package.json`, commits the change, and creates a git tag in one step. Pushing the tag triggers the GitHub Actions workflow, which creates the GitHub release and bumps the Homebrew formula.
+
+```bash
+npm version patch   # or minor / major, or an explicit version like 2.2.0
+git push && git push --tags
+```
+
+Do not create tags manually — `package.json` must match the tag for `claudeman --version` to report the correct version.
